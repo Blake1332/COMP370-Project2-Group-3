@@ -3,6 +3,8 @@ package raft_demo;
 import java.net.*;
 import java.util.*;
 import java.io.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 
  //The network server for a Raft node.
@@ -32,14 +34,14 @@ public class RaftServer {
         this.socket = new DatagramSocket(port);
         this.clientSocket = new ServerSocket(clientPort);
         this.raftNode = new RaftNode(id, clusterMembers);
-        this.logger = new Logger("Node-" + id, "logs/node_" + id + ".log");
+        this.logger = Logger.getLogger(RaftServer.class.getName() + ".Node-" + id);
         this.raftNode.setLogger(this.logger);
     }
 
      // Starts the server's background threads and main logic loop.
 
     public void start() {
-        logger.log("Server " + raftNode.id + " started on port " + port + ", client port " + clientPort);
+        logger.info("Server " + raftNode.id + " started on port " + port + ", client port " + clientPort);
 
         //Network Receiver Thread 
         // Continuously listens for incoming UDP packets and dispatches them to handlePacket
@@ -49,11 +51,10 @@ public class RaftServer {
                 try {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
-                    logger.log("Received packet from " + packet.getAddress() + ":" + packet.getPort() + " sent to handlePacket");
+                    logger.info("Received packet from " + packet.getAddress() + ":" + packet.getPort() + " sent to handlePacket");
                     handlePacket(packet);
                 } catch (Exception e) {
-                    logger.log("Error handling packet: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.log(Level.SEVERE, "Error handling packet: " + e.getMessage(), e);
                 }
             }
         }).start();
@@ -64,12 +65,11 @@ public class RaftServer {
             while (true) {
                 try {
                     Socket client = clientSocket.accept();
-                    logger.log("Client connected from " + client.getInetAddress() + ":" + client.getPort());
+                    logger.info("Client connected from " + client.getInetAddress() + ":" + client.getPort());
                     // Handle each client in a separate thread
                     new Thread(() -> handleClientConnection(client)).start();
                 } catch (Exception e) {
-                    logger.log("Error accepting client connection: " + e.getMessage());
-                    e.printStackTrace();
+                    logger.log(Level.SEVERE, "Error accepting client connection: " + e.getMessage(), e);
                 }
             }
         }).start();
@@ -92,13 +92,12 @@ public class RaftServer {
                         raftNode.lastApplied++;
                         if (raftNode.lastApplied < raftNode.log.size()) {
                             RaftRPC.LogEntry entry = raftNode.log.get(raftNode.lastApplied);
-                            logger.log("Applied to State Machine: " + entry.command + " at index " + raftNode.lastApplied);
+                            logger.info("Applied to State Machine: " + entry.command + " at index " + raftNode.lastApplied);
                         }
                     }
                 }
             } catch (Exception e) {
-                logger.log("Error in main loop: " + e.getMessage());
-                e.printStackTrace();
+                logger.log(Level.SEVERE, "Error in main loop: " + e.getMessage(), e);
             }
         }
     }
@@ -112,25 +111,25 @@ public class RaftServer {
 
             if (obj instanceof RaftRPC.RequestVoteArgs) {
                 // Handle a vote request from another node
-                logger.log("Handling RequestVoteArgs from " + packet.getAddress() + ":" + packet.getPort());
+                logger.info("Handling RequestVoteArgs from " + packet.getAddress() + ":" + packet.getPort());
                 RaftRPC.RequestVoteResults res = raftNode.handleRequestVote((RaftRPC.RequestVoteArgs) obj);
                 sendResponse(res, packet.getAddress(), packet.getPort());
 
             } else if (obj instanceof RaftRPC.AppendEntriesArgs) {
                 // Handle a heartbeat or log replication request from a leader
-                logger.log("Handling AppendEntriesArgs from " + packet.getAddress() + ":" + packet.getPort());
+                logger.info("Handling AppendEntriesArgs from " + packet.getAddress() + ":" + packet.getPort());
                 sleepHeartbeatDelay();
                 RaftRPC.AppendEntriesResults res = raftNode.handleAppendEntries((RaftRPC.AppendEntriesArgs) obj);
                 sendResponse(res, packet.getAddress(), packet.getPort());
 
             } else if (obj instanceof RaftRPC.RequestVoteResults) {
                 // Handle a vote response we received after starting an election
-                logger.log("Handling RequestVoteResults from " + packet.getAddress() + ":" + packet.getPort());
+                logger.info("Handling RequestVoteResults from " + packet.getAddress() + ":" + packet.getPort());
                 handleVoteResult((RaftRPC.RequestVoteResults) obj);
 
             } else if (obj instanceof RaftRPC.AppendEntriesResults) {
                 // Handle a response to a log replication request we sent
-                logger.log("Handling AppendEntriesResults from " + packet.getAddress() + ":" + packet.getPort());
+                logger.info("Handling AppendEntriesResults from " + packet.getAddress() + ":" + packet.getPort());
                 int fromId = -1;
                 for (Map.Entry<Integer, Integer> entry : raftNode.clusterMembers.entrySet()) {
                     if (entry.getValue() == packet.getPort()) {
@@ -149,11 +148,11 @@ public class RaftServer {
     // Initiates an election by requesting votes from all other cluster members.
      
     private void startElection() throws Exception {
-        logger.log("Election timeout! Starting election for term " + (raftNode.currentTerm + 1));
+        logger.info("Election timeout! Starting election for term " + (raftNode.currentTerm + 1));
         raftNode.startElection();
         votesReceived = 1; // Vote for self ofc
 
-        logger.log("Requesting votes from other nodes...");
+        logger.info("Requesting votes from other nodes...");
         RaftRPC.RequestVoteArgs args = new RaftRPC.RequestVoteArgs(
             raftNode.currentTerm, raftNode.id, 
             raftNode.log.size() - 1, 
@@ -163,7 +162,7 @@ public class RaftServer {
 
         for (Map.Entry<Integer, Integer> member : raftNode.clusterMembers.entrySet()) {
             if (member.getKey() != raftNode.id) {
-                logger.log("Requesting vote from node " + member.getKey() + " at port " + member.getValue());
+                logger.info("Requesting vote from node " + member.getKey() + " at port " + member.getValue());
                 sendRequest(args, "localhost", member.getValue());
             }
         }
@@ -173,15 +172,15 @@ public class RaftServer {
     //Processes a vote response and transitions to leader if a majority is reached.
     private void handleVoteResult(RaftRPC.RequestVoteResults res) {
         if (res.term > raftNode.currentTerm) {
-            logger.log("Received higher term (" + res.term + "), stepping down");
+            logger.info("Received higher term (" + res.term + "), stepping down");
             raftNode.stepDown(res.term);
             return;
         }
         if (raftNode.role == RaftNode.Role.CANDIDATE && res.voteGranted) {
             votesReceived++;
-            logger.log("Vote received! Total votes: " + votesReceived + "/" + raftNode.clusterMembers.size());
+            logger.info("Vote received! Total votes: " + votesReceived + "/" + raftNode.clusterMembers.size());
             if (votesReceived > raftNode.clusterMembers.size() / 2) {
-                logger.log("Majority votes received! Becoming leader for term " + raftNode.currentTerm);
+                logger.info("Majority votes received! Becoming leader for term " + raftNode.currentTerm);
                 raftNode.becomeLeader();
             }
         }
@@ -192,15 +191,15 @@ public class RaftServer {
     //heartbeats are just empty AppendEntries Requests
     private void sendHeartbeats() throws Exception {
         if (System.currentTimeMillis() - raftNode.lastHeartbeat < 1500) {
-            logger.log("Less than 1500ms since last heartbeat, skipping heartbeat send");
+            logger.info("Less than 1500ms since last heartbeat, skipping heartbeat send");
             return;
         }
         raftNode.lastHeartbeat = System.currentTimeMillis();
-        logger.log("Sending heartbeats to followers...");
+        logger.info("Sending heartbeats to followers...");
         sleepHeartbeatDelay();
         for (Map.Entry<Integer, Integer> member : raftNode.clusterMembers.entrySet()) {
             if (member.getKey() != raftNode.id) {
-                logger.log("Sending heartbeat to node " + member.getKey() + " at port " + member.getValue());
+                logger.info("Sending heartbeat to node " + member.getKey() + " at port " + member.getValue());
                 int nextIndex = raftNode.nextIndex.getOrDefault(member.getKey(), raftNode.log.size());
                 if (nextIndex > raftNode.log.size()) {
                     nextIndex = raftNode.log.size();
@@ -212,7 +211,7 @@ public class RaftServer {
                 List<RaftRPC.LogEntry> entries = null;
                 if (nextIndex < raftNode.log.size()) {
                     entries = new ArrayList<>(raftNode.log.subList(nextIndex, raftNode.log.size()));
-                    logger.log("Sending " + entries.size() + " entries to node " + member.getKey() + " starting at index " + nextIndex);
+                    logger.info("Sending " + entries.size() + " entries to node " + member.getKey() + " starting at index " + nextIndex);
                     int lastSentIndex = nextIndex + entries.size() - 1;
                     lastSentIndexByFollower.put(member.getKey(), lastSentIndex);
                 }
@@ -232,7 +231,7 @@ public class RaftServer {
 
     private void handleAppendEntriesResult(RaftRPC.AppendEntriesResults res, int fromId) {
         if (res.term > raftNode.currentTerm) {
-            logger.log("Received higher term (" + res.term + "), stepping down");
+            logger.info("Received higher term (" + res.term + "), stepping down");
             raftNode.stepDown(res.term);
             return;
         }
@@ -240,7 +239,7 @@ public class RaftServer {
         if (raftNode.role == RaftNode.Role.LEADER) {
             if (res.success) {
                 // Update the match index for this follower
-                logger.log("AppendEntries successful from node " + fromId + ", updating matchIndex");
+                logger.info("AppendEntries successful from node " + fromId + ", updating matchIndex");
                 int lastSentIndex = lastSentIndexByFollower.getOrDefault(fromId, raftNode.matchIndex.getOrDefault(fromId, -1));
                 if (lastSentIndex >= 0) {
                     raftNode.matchIndex.put(fromId, lastSentIndex);
@@ -252,7 +251,7 @@ public class RaftServer {
                 int nextIndex = raftNode.nextIndex.getOrDefault(fromId, raftNode.log.size());
                 if (nextIndex > 0) {
                     raftNode.nextIndex.put(fromId, nextIndex - 1);
-                    logger.log("AppendEntries failed for node " + fromId + ", decrementing nextIndex to " + (nextIndex - 1));
+                    logger.info("AppendEntries failed for node " + fromId + ", decrementing nextIndex to " + (nextIndex - 1));
                 }
             }
         }
@@ -274,7 +273,7 @@ public class RaftServer {
             }
             if (count > raftNode.clusterMembers.size() / 2) {
                 raftNode.commitIndex = n;
-                logger.log("Majority reached! Committed up to index " + raftNode.commitIndex);
+                logger.info("Majority reached! Committed up to index " + raftNode.commitIndex);
                 break;
             }
         }
@@ -314,7 +313,7 @@ public class RaftServer {
             ObjectOutputStream out = new ObjectOutputStream(client.getOutputStream());
             
             Client.ClientRequest request = (Client.ClientRequest) in.readObject();
-            logger.log("Received client request: " + request.type);
+            logger.info("Received client request: " + request.type);
             
             Client.ClientResponse response;
             
@@ -323,19 +322,19 @@ public class RaftServer {
                 if (request.type == Client.ClientRequest.RequestType.GET_LEADER) {
                     // Return current leader ID
                     Integer leaderId = raftNode.role == RaftNode.Role.LEADER ? raftNode.id : raftNode.currentLeaderId;
-                    logger.log("Responding with leader ID: " + leaderId);
+                    logger.info("Responding with leader ID: " + leaderId);
                     response = new Client.ClientResponse(true, "Leader: " + leaderId, leaderId);
                     
                 } else if (request.type == Client.ClientRequest.RequestType.PROCESS_JOB) {
                     if (raftNode.role == RaftNode.Role.LEADER) {
                         // Process the job as leader
-                        logger.log("Processing job as leader: " + request.command);
+                        logger.info("Processing job as leader: " + request.command);
                         raftNode.appendAsLeader(request.command);
                         response = new Client.ClientResponse(true, "Job accepted by leader: " + request.command, raftNode.id);
                     } else {
                         // Not the leader, redirect
                         Integer leaderId = raftNode.currentLeaderId;
-                        logger.log("Not leader, redirecting to: " + leaderId);
+                        logger.info("Not leader, redirecting to: " + leaderId);
                         response = new Client.ClientResponse(false, "NOT_LEADER", leaderId);
                     }
                 } else {
@@ -346,11 +345,10 @@ public class RaftServer {
             out.writeObject(response);
             out.flush();
             client.close();
-            logger.log("Client connection handled and closed");
+            logger.info("Client connection handled and closed");
             
         } catch (Exception e) {
-            logger.log("Error handling client connection: " + e.getMessage());
-            e.printStackTrace();
+            logger.log(Level.SEVERE, "Error handling client connection: " + e.getMessage(), e);
         }
     }
 
@@ -383,10 +381,9 @@ public class RaftServer {
         // Add shutdown hook for graceful termination
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
-                server.logger.log("Shutting down server " + id);
+                server.logger.info("Shutting down server " + id);
                 server.socket.close();
                 server.clientSocket.close();
-                server.logger.close();
             } catch (Exception e) {
                 e.printStackTrace();
             }

@@ -263,7 +263,6 @@ public class GUI extends JFrame {
             "src/raft_demo/RaftNode.java",
             "src/raft_demo/RaftRPC.java",
             "src/raft_demo/Client.java",
-            "src/raft_demo/Logger.java",
             "src/raft_demo/GUI.java"
         );
         return result == 0;

@@ -1,6 +1,7 @@
 package raft_demo;
 
 import java.util.*;
+import java.util.logging.Logger;
 
 // Represents a single node in the Raft cluster.
 // This class maintains the node's state (Follower, Candidate, or Leader)
@@ -93,11 +94,11 @@ public class RaftNode {
     // 2. If votedFor is null or candidateId, and candidate's log is at least as up-to-date as receiver's log, grant vote
 
     public synchronized RaftRPC.RequestVoteResults handleRequestVote(RaftRPC.RequestVoteArgs args) {
-        logger.log("Received RequestVote from Node " + args.candidateId + " for term " + args.term);
+        logger.info("Received RequestVote from Node " + args.candidateId + " for term " + args.term);
         
         // 1. Reply false if term < currentTerm
         if (args.term < currentTerm) {
-            logger.log("Vote denied to Node " + args.candidateId + ": term " + args.term + " < " + currentTerm);
+            logger.info("Vote denied to Node " + args.candidateId + ": term " + args.term + " < " + currentTerm);
             return new RaftRPC.RequestVoteResults(currentTerm, false);
         }
 
@@ -105,7 +106,7 @@ public class RaftNode {
         if (args.term > currentTerm) {
             // Clear current leader as higher term found
             currentLeaderId = null;
-            logger.log("Stepping down to follower for higher term " + args.term);
+            logger.info("Stepping down to follower for higher term " + args.term);
             stepDown(args.term);
         }
 
@@ -117,18 +118,18 @@ public class RaftNode {
         if (args.lastLogTerm > lastLogTerm || 
            (args.lastLogTerm == lastLogTerm && args.lastLogIndex >= lastLogIndex)) {
             logUpToDate = true;
-            logger.log("Candidate's log is up to date");
+            logger.info("Candidate's log is up to date");
         }
 
         // 3. Grant vote if not yet voted in this term and log is ok
         if ((votedFor == null || votedFor == args.candidateId) && logUpToDate) {
             votedFor = args.candidateId;
             resetElectionTimeout();
-            logger.log("Vote granted to Node " + args.candidateId + " for term " + currentTerm);
+            logger.info("Vote granted to Node " + args.candidateId + " for term " + currentTerm);
             return new RaftRPC.RequestVoteResults(currentTerm, true);
         }
 
-        logger.log("Vote denied to Node " + args.candidateId + ": already voted or log not up to date");
+        logger.info("Vote denied to Node " + args.candidateId + ": already voted or log not up to date");
         return new RaftRPC.RequestVoteResults(currentTerm, false);
     }
 
@@ -138,7 +139,7 @@ public class RaftNode {
         currentTerm++;
         votedFor = id; // Vote for self
         resetElectionTimeout();
-        logger.log("Node " + id + " starting election for term " + currentTerm);
+        logger.info("Node " + id + " starting election for term " + currentTerm);
     }
 
     //---------------------------------
@@ -159,19 +160,19 @@ public class RaftNode {
 
         // 1. Reply false if term < currentTerm
         if (args.term < currentTerm) {
-            logger.log("AppendEntries denied from Leader " + args.leaderId + ": term " + args.term + " < " + currentTerm);
+            logger.info("AppendEntries denied from Leader " + args.leaderId + ": term " + args.term + " < " + currentTerm);
             return new RaftRPC.AppendEntriesResults(currentTerm, false);
         }
 
         // Reset timeout because we heard from a valid leader
-        logger.log("Resetting election timeout due to valid leader " + args.leaderId);
+        logger.info("Resetting election timeout due to valid leader " + args.leaderId);
         // Update current leader ID
         currentLeaderId = args.leaderId;
         resetElectionTimeout();
         
         // If term is higher, update currentTerm
         if (args.term > currentTerm) {
-            logger.log("Stepping down to follower for higher term " + args.term);
+            logger.info("Stepping down to follower for higher term " + args.term);
             stepDown(args.term);
         }
         // Recognize the sender as the valid leader
@@ -179,7 +180,7 @@ public class RaftNode {
 
         if (args.entries == null || args.entries.isEmpty()) {
             // Heartbeat received
-            logger.log("Received heartbeat from Leader " + args.leaderId + " (Term: " + args.term + ")");
+            logger.info("Received heartbeat from Leader " + args.leaderId + " (Term: " + args.term + ")");
         }
 
 
@@ -187,41 +188,41 @@ public class RaftNode {
         // 2. Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if (args.prevLogIndex >= 0) {
             if (args.prevLogIndex >= log.size() || log.get(args.prevLogIndex).term != args.prevLogTerm) {
-                logger.log("AppendEntries denied from Leader " + args.leaderId + ": log inconsistency at prevLogIndex " + args.prevLogIndex);
+                logger.info("AppendEntries denied from Leader " + args.leaderId + ": log inconsistency at prevLogIndex " + args.prevLogIndex);
                 return new RaftRPC.AppendEntriesResults(currentTerm, false);
             }
         }
 
         // 3 & 4. Append new entries and handle conflicts
         if (args.entries != null && !args.entries.isEmpty()) {
-            logger.log("Appending " + args.entries.size() + " entries from Leader " + args.leaderId);
+            logger.info("Appending " + args.entries.size() + " entries from Leader " + args.leaderId);
             int index = args.prevLogIndex + 1;
             for (RaftRPC.LogEntry entry : args.entries) {
-                logger.log("    Processing log entry at index " + index + " with term " + entry.term);
+                logger.info("    Processing log entry at index " + index + " with term " + entry.term);
                 if (index < log.size()) {
                     if (log.get(index).term != entry.term) {
                         // Conflict 
-                        logger.log("    Conflict detected at index " + index + ". Replacing existing entries.");
+                        logger.info("    Conflict detected at index " + index + ". Replacing existing entries.");
                         log = new ArrayList<>(log.subList(0, index));
                         log.add(entry);
                     }
                 } else {
                     // No conflict
-                    logger.log("    No conflict at index " + index + ". Appending entry.");
+                    logger.info("    No conflict at index " + index + ". Appending entry.");
                     log.add(entry);
                 }
                 index++;
-                logger.log("    Log size is now " + log.size());
+                logger.info("    Log size is now " + log.size());
             }
         }
 
         // 5. Update commitIndex
         if (args.leaderCommit > commitIndex) {
             commitIndex = Math.min(args.leaderCommit, log.size() - 1);
-            logger.log("Updated commitIndex to " + commitIndex);
+            logger.info("Updated commitIndex to " + commitIndex);
         }
 
-        logger.log("AppendEntries from Leader " + args.leaderId + " processed successfully");
+        logger.info("AppendEntries from Leader " + args.leaderId + " processed successfully");
         return new RaftRPC.AppendEntriesResults(currentTerm, true);
     }
 
@@ -238,7 +239,7 @@ public class RaftNode {
             }
         }
         matchIndex.put(id, log.size() - 1);
-        logger.log("    Node " + id + " became leader for term " + currentTerm);
+        logger.info("    Node " + id + " became leader for term " + currentTerm);
     }
 
     // Append a new log entry as leader and update leader's own matchIndex.
@@ -261,7 +262,7 @@ public class RaftNode {
             currentTerm = term;
             votedFor = null;
             role = Role.FOLLOWER;
-            logger.log("    Node " + id + " stepping down to follower for term " + currentTerm);
+            logger.info("    Node " + id + " stepping down to follower for term " + currentTerm);
         }
     }
 }

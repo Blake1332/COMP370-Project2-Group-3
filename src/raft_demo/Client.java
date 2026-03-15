@@ -3,6 +3,8 @@ package raft_demo;
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Client for the Raft cluster.
@@ -20,19 +22,11 @@ public class Client {
 
 
     // Logger for client activities
-    private static final Logger logger;
-
-    static {
-        try {
-            logger = new Logger("CLIENT", "logs/client.log");
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to initialize logger", e);
-        }
-    }
+    private static final Logger logger = Logger.getLogger(Client.class.getName());
 
     // Discovers the current leader by querying all cluster members
     public boolean discoverLeader() {
-        logger.log("Discovering leader...");
+        logger.info("Discovering leader...");
         
         // Query each member for the leader
         for (Map.Entry<Integer, Integer> member : clusterMembers.entrySet()) {
@@ -40,16 +34,16 @@ public class Client {
                 Integer leaderId = queryNodeForLeader(member.getValue());
                 if (leaderId != null) {
                     currentLeaderId = leaderId;
-                    logger.log("Found leader: Node " + leaderId);
+                    logger.info("Found leader: Node " + leaderId);
                     return true;
                 }
             } catch (Exception e) {
                 // Try next node
-                logger.log("ERROR: " + e.getMessage());
+                logger.log(Level.WARNING, "Leader query failed: " + e.getMessage(), e);
             }
         }
         
-        logger.log("No leader found");
+        logger.info("No leader found");
         return false;
     }
     
@@ -61,14 +55,14 @@ public class Client {
             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
             
-            logger.log("    Querying node at port " + port + " for leader");
+            logger.info("    Querying node at port " + port + " for leader");
             ClientRequest request = new ClientRequest(ClientRequest.RequestType.GET_LEADER, null);
             out.writeObject(request);
             out.flush();
             
             // Get response
             ClientResponse response = (ClientResponse) in.readObject();
-            logger.log("    Received leader response: " + response.leaderId);
+            logger.info("    Received leader response: " + response.leaderId);
             return response.leaderId;
         }
     }
@@ -84,7 +78,7 @@ public class Client {
 
             // Send request to leader's port
             int port = clusterMembers.get(currentLeaderId);
-            logger.log("    Sending request to leader at port " + port);
+            logger.info("    Sending request to leader at port " + port);
             
             try (Socket socket = new Socket("localhost", port)) {
                 socket.setSoTimeout(5000);
@@ -157,7 +151,7 @@ public class Client {
         
         // Interactive mode
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
-        logger.log("Raft Client Started.");
+        logger.info("Raft Client Started.");
         System.out.println("Give any input to send to PROCESS_JOB command, or type QUIT to exit:");
         
         while (true) {
@@ -172,16 +166,15 @@ public class Client {
                 continue;
             }
 
-            logger.log("Received input, other than QUIT: " + input);
+            logger.info("Received input, other than QUIT: " + input);
             // Send request to leader and receive response
             String response = client.sendRequest(input);
-            logger.log("Response from leader: " + response);
+            logger.info("Response from leader: " + response);
         }
         
         // If input is QUIT, exit and close logger
-        logger.log("Client shut down.");
+        logger.info("Client shut down.");
         reader.close();
-        logger.close();
     }
 }
 
