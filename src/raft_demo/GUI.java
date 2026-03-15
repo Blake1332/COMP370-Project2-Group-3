@@ -5,13 +5,17 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class GUI extends JFrame {
 
     private Process[] nodeProcesses = new Process[3];
     private JButton[] nodeKillButtons = new JButton[3];
-    private JButton startClusterBtn, stopClusterBtn, connectClientBtn, sendBtn, resetBtn;
+    private JButton startClusterBtn, stopClusterBtn, connectClientBtn, showLeaderBtn, sendBtn, resetBtn;
     private JCheckBox delay;
     private JTextField commandField;
     private JTextArea outputArea;
@@ -115,6 +119,9 @@ public class GUI extends JFrame {
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
         row2.add(connectClientBtn = new JButton("Connect to Cluster"));
         connectClientBtn.addActionListener(e -> onConnectClient());
+        row2.add(showLeaderBtn = new JButton("Show Current Leader"));
+        showLeaderBtn.addActionListener(e -> onShowCurrentLeader());
+        showLeaderBtn.setEnabled(false);
         buttons_jframe.add(row2);
 
         // INPUT
@@ -219,6 +226,7 @@ public class GUI extends JFrame {
         startClusterBtn.setEnabled(true);
         stopClusterBtn.setEnabled(false);
         connectClientBtn.setEnabled(true);
+        showLeaderBtn.setEnabled(false);
         commandField.setEnabled(false);
         sendBtn.setEnabled(false);
         outputArea.setText("");
@@ -296,6 +304,7 @@ public class GUI extends JFrame {
         members.put(2, 8103);
         members.put(3, 8104);
         client = new Client(members);
+        showLeaderBtn.setEnabled(true);
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
         new Thread(() -> {
@@ -311,6 +320,49 @@ public class GUI extends JFrame {
                     lastKnownLeader = "unknown";
                     appendOutput("No leader found.\n");
                 }
+            });
+        }).start();
+    }
+
+    private void onShowCurrentLeader() {
+        showLeaderBtn.setEnabled(false);
+        if (client == null) {
+            appendOutput("Client is not connected.\n");
+            showLeaderBtn.setEnabled(false);
+            return;
+        }
+
+        final Client finalLeaderClient = client;
+        new Thread(() -> {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            Future<Boolean> future = executor.submit(finalLeaderClient::discoverLeader);
+            boolean found = false;
+            boolean timedOut = false;
+
+            try {
+                found = future.get(5, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                timedOut = true;
+                future.cancel(true);
+            } catch (Exception e) {
+                found = false;
+            } finally {
+                executor.shutdownNow();
+            }
+
+            final boolean finalFound = found;
+            final boolean finalTimedOut = timedOut;
+            SwingUtilities.invokeLater(() -> {
+                if (finalTimedOut) {
+                    appendOutput("timeout\n");
+                } else if (finalFound) {
+                    lastKnownLeader = getLeaderId(finalLeaderClient);
+                    appendOutput("Current leader is Node " + lastKnownLeader + "\n");
+                } else {
+                    lastKnownLeader = "unknown";
+                    appendOutput("Current leader is none.\n");
+                }
+                showLeaderBtn.setEnabled(true);
             });
         }).start();
     }

@@ -324,8 +324,9 @@ public class RaftServer {
             // Use of synchronized to ensure thread safety when accessing raftNode
             synchronized (raftNode) {
                 if (request.type == Client.ClientRequest.RequestType.GET_LEADER) {
-                    // Return current leader ID
-                    Integer leaderId = raftNode.role == RaftNode.Role.LEADER ? raftNode.id : raftNode.currentLeaderId;
+                    // Only leader should answer
+                    // Followers/candidates return null because that not their job, they will redirect if they can!
+                    Integer leaderId = raftNode.role == RaftNode.Role.LEADER ? raftNode.id : null;
                     logger.info("Responding with leader ID: " + leaderId);
                     response = new Client.ClientResponse(true, "Leader: " + leaderId, leaderId);
                     
