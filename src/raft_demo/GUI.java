@@ -5,6 +5,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 public class GUI extends JFrame {
 
@@ -148,8 +149,7 @@ public class GUI extends JFrame {
     //KILLING NODES
     private void onKillNode(int id, JButton btn) {
         if (nodeProcesses[id - 1] != null) {
-            nodeProcesses[id - 1].destroyForcibly();
-            nodeProcesses[id - 1] = null;
+            stopNodeProcess(id); 
             appendOutput("Node " + id + " killed manually.\n");
             btn.setText("Restart Node " + id);
             
@@ -231,14 +231,33 @@ public class GUI extends JFrame {
 
     // THIS IS JANK, JANK, JANK, im going crazy trying to get this to work dynamically tho 
     private void killAllNodes() {
-        if (nodeProcesses[0] != null) { nodeProcesses[0].destroyForcibly(); nodeProcesses[0] = null; }
-        if (nodeProcesses[1] != null) { nodeProcesses[1].destroyForcibly(); nodeProcesses[1] = null; }
-        if (nodeProcesses[2] != null) { nodeProcesses[2].destroyForcibly(); nodeProcesses[2] = null; }
+        stopNodeProcess(1);
+        stopNodeProcess(2);
+        stopNodeProcess(3);
         appendOutput("All nodes destroyed.\n");
+    }
+    // this did the same as KillAllNodes, but more dynamic im trying to build towards more then 3 nodes
+    private void stopNodeProcess(int id) {
+        Process process = nodeProcesses[id - 1];
+        if (process == null) {
+            return;
+        }
+
+        process.destroyForcibly();
+        try { 
+            process.waitFor(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        nodeProcesses[id - 1] = null;
     }
 
     private void startNode(int id) {
         try { //THIS is a mess. but I forgot to do it and it works
+            Process existing = nodeProcesses[id - 1];
+            if (existing != null && existing.isAlive()) {
+                stopNodeProcess(id); //edge case
+            }
             if (delay != null && delay.isSelected()) {
                 nodeProcesses[id - 1] = new ProcessBuilder("java", "-Draft.heartbeat.delay.ms=500", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id))
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start();

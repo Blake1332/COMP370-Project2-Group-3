@@ -31,8 +31,12 @@ public class RaftServer {
     public RaftServer(int id, int port, int clientPort, Map<Integer, Integer> clusterMembers) throws Exception {
         this.port = port;
         this.clientPort = clientPort;
-        this.socket = new DatagramSocket(port);
-        this.clientSocket = new ServerSocket(clientPort);
+        this.socket = new DatagramSocket(null);
+        this.socket.setReuseAddress(true);
+        this.socket.bind(new InetSocketAddress(port));
+        this.clientSocket = new ServerSocket();
+        this.clientSocket.setReuseAddress(true);
+        this.clientSocket.bind(new InetSocketAddress(clientPort));
         this.raftNode = new RaftNode(id, clusterMembers);
         this.logger = Logger.getLogger(RaftServer.class.getName() + ".Node-" + id);
         this.raftNode.setLogger(this.logger);
