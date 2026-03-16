@@ -361,26 +361,29 @@ public class RaftServer {
      // Main entry point to start a node.
      
     public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            System.out.println("Usage: RaftServer <id>");
+        if (args.length < 2) { // only for command line/headless as they can mess up the input however...... The GUI uses processBuilder so it is still using the command line to create it, but the arguments are not chanageable by the user in the GUI and will always be valid, since we are checking on the gui aswell, unless they do something silly like edit or try to break the program or intentially send bad info. We are safter just to check again here just to be sure.
+            System.out.println("Error: RaftServer <id> <nodeCount>");
             return;
         }
         int id = Integer.parseInt(args[0]);
-        
-        // Define ports for the nodes
-        Map<Integer, Integer> members = new HashMap<>();
-        members.put(1, 9102);
-        members.put(2, 9103);
-        members.put(3, 9104);
+        int nodeCount = Integer.parseInt(args[1]);
+        try {
+            RaftConfig.validateClusterSize(nodeCount);
+        } catch (IllegalArgumentException e) {
+            System.out.println(e.getMessage()); // catch and dont crash,same deal for command line/headless/gui as aboe
+            return;
+        }
 
-        if (!members.containsKey(id)) {
+        Map<Integer, Integer> members = RaftConfig.getClusterMembers(nodeCount);
+
+        if (!RaftConfig.isValidNodeId(id, nodeCount)) { //same deal as above *2
             System.out.println("Invalid Node ID: " + id);
             return;
         }
 
 
         int port = members.get(id);
-        int clientPort = 8101 + id; // Client ports: 8102, 8103, 8104
+        int clientPort = RaftConfig.clientPort(id);
         RaftServer server = new RaftServer(id, port, clientPort, members);
 
         // Add shutdown hook for graceful termination

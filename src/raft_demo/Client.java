@@ -141,13 +141,12 @@ public class Client {
     
     // Main method for testing the client
     public static void main(String[] args) throws Exception {
-        // Define cluster members and their ports for the client to know where to find the servers
-        Map<Integer, Integer> members = new HashMap<>();
-        members.put(1, 8102);  
-        members.put(2, 8103);
-        members.put(3, 8104);
-        
-        Client client = new Client(members);
+        int nodeCount = RaftConfig.DEFAULT_CLUSTER_SIZE;
+        if (args.length > 0) {
+            nodeCount = Integer.parseInt(args[0]);
+        }
+        RaftConfig.validateClusterSize(nodeCount);
+        Client client = new Client(RaftConfig.getClientPorts(nodeCount));
         
         // Interactive mode
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
