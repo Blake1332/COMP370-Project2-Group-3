@@ -13,13 +13,18 @@ import java.util.concurrent.TimeoutException;
 
 public class GUI extends JFrame {
 
-    private Process[] nodeProcesses = new Process[3];
-    private JButton[] nodeKillButtons = new JButton[3];
+    private java.util.List<Process> nodeProcesses = new ArrayList<>();
+    private java.util.List<JButton> nodeKillButtons = new ArrayList<>();
     private JButton startClusterBtn, stopClusterBtn, connectClientBtn, showLeaderBtn, sendBtn, resetBtn;
+    private JComboBox<Integer> clusterSizeDropdown;
+    private JComboBox<String> logDropdown;
+    private JPanel nodeControlRow;
     private JCheckBox delay;
     private JTextField commandField;
     private JTextArea outputArea;
     private Client client;
+    private int nodeCount = RaftConfig.DEFAULT_CLUSTER_SIZE;
+    private java.util.List<String> logFiles = new ArrayList<>();
     private String currentLogFile = null;
     private javax.swing.Timer logRefreshTimer;
 
@@ -55,14 +60,19 @@ public class GUI extends JFrame {
         row1.add(stopClusterBtn = new JButton("Stop Cluster"));
         row1.add(resetBtn = new JButton("Hard Reset"));
         row1.add(delay = new JCheckBox("Simulate network delay", false));
-        JComboBox<String> logDropdown = new JComboBox<>(new String[]{
-            "View Logs", "Node 1", "Node 2", "Node 3", "Client"
-        });
-        String[] logFiles = {null, "node_1.log", "node_2.log", "node_3.log", "client.log"};
+        row1.add(new JLabel("Nodes:"));
+        clusterSizeDropdown = new JComboBox<>();
+        for (int size = RaftConfig.MIN_CLUSTER_SIZE; size <= RaftConfig.MAX_CLUSTER_SIZE; size++) {
+            clusterSizeDropdown.addItem(size);
+        }
+        clusterSizeDropdown.setSelectedItem(nodeCount);
+        clusterSizeDropdown.addActionListener(e -> onClusterSizeChanged());
+        row1.add(clusterSizeDropdown);
+        logDropdown = new JComboBox<>();
         logDropdown.addActionListener(e -> {
             int selected = logDropdown.getSelectedIndex();
             if (selected > 0) {
-                currentLogFile = logFiles[selected];
+                currentLogFile = logFiles.get(selected);
                 readLog(currentLogFile);
                 logRefreshTimer.start();
             } else {
@@ -135,16 +145,8 @@ public class GUI extends JFrame {
         buttons_jframe.add(row3);
 
         // NODE FAILURE SIMULATION
-        JPanel row4 = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        for (int i = 1; i <= 3; i++) {
-            int id = i;
-            JButton killBtn = new JButton("Kill Node " + id);
-            killBtn.setEnabled(false);
-            killBtn.addActionListener(e -> onKillNode(id, killBtn));
-            nodeKillButtons[id - 1] = killBtn;
-            row4.add(killBtn);
-        }
-        buttons_jframe.add(row4);
+        nodeControlRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        buttons_jframe.add(nodeControlRow);
 
         add(buttons_jframe, BorderLayout.NORTH);
 
@@ -152,10 +154,14 @@ public class GUI extends JFrame {
         outputArea = new JTextArea();
         outputArea.setEditable(false);
         add(new JScrollPane(outputArea), BorderLayout.CENTER);
+
+        initializeNodeState();
+        refreshNodeButtons();
+        refreshLogDropdownOptions();
     }
     //KILLING NODES
     private void onKillNode(int id, JButton btn) {
-        if (nodeProcesses[id - 1] != null) {
+        if (nodeProcesses.get(id - 1) != null) {
             stopNodeProcess(id); 
             appendOutput("Node " + id + " killed manually.\n");
             btn.setText("Restart Node " + id);
@@ -177,6 +183,7 @@ public class GUI extends JFrame {
 
     private void onStartCluster() {
         startClusterBtn.setEnabled(false);
+        clusterSizeDropdown.setEnabled(false);
         appendOutput("Compiling...\n");
         new Thread(() -> {
             boolean compiled = compileProject();
@@ -184,24 +191,24 @@ public class GUI extends JFrame {
                 SwingUtilities.invokeLater(() -> {
                     appendOutput("Compilation failed.\n");
                     startClusterBtn.setEnabled(true);
+                    clusterSizeDropdown.setEnabled(true);
                 });
                 return;
             }
             SwingUtilities.invokeLater(() -> appendOutput("Compilation successful.\n"));
-            startNode(1); startNode(2); startNode(3);
+            for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
+                startNode(id);
+            }
             SwingUtilities.invokeLater(() -> {
-                appendOutput("Node 1 started.\n");
-                appendOutput("Node 2 started.\n");
-                appendOutput("Node 3 started.\n");
+                for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
+                    appendOutput("Node " + id + " started.\n");
+                }
                 appendOutput("Cluster started successfully.\n");
                 if (delay != null && delay.isSelected()) {
                     appendOutput("Network delay started (500ms heartbeats).");
                 }
                 stopClusterBtn.setEnabled(true);
-                for (JButton btn : nodeKillButtons) {
-                    btn.setEnabled(true);
-                    btn.setText("Kill Node " + (Arrays.asList(nodeKillButtons).indexOf(btn) + 1));
-                }
+                setNodeButtonsEnabled(true);
             });
         }).start();
     }
@@ -211,12 +218,10 @@ public class GUI extends JFrame {
         killAllNodes();
         stopClusterBtn.setEnabled(false);
         startClusterBtn.setEnabled(true);
+        clusterSizeDropdown.setEnabled(true);
         lastKnownLeader = "unknown";
         appendOutput("All nodes stopped.\n");
-        for (JButton btn : nodeKillButtons) {
-            btn.setEnabled(false);
-            btn.setText("Kill Node " + (Arrays.asList(nodeKillButtons).indexOf(btn) + 1));
-        }
+        setNodeButtonsEnabled(false);
     }
 
     private void onReset() {
@@ -225,28 +230,25 @@ public class GUI extends JFrame {
         lastKnownLeader = "unknown";
         startClusterBtn.setEnabled(true);
         stopClusterBtn.setEnabled(false);
+        clusterSizeDropdown.setEnabled(true);
         connectClientBtn.setEnabled(true);
         showLeaderBtn.setEnabled(false);
         commandField.setEnabled(false);
         sendBtn.setEnabled(false);
         outputArea.setText("");
         appendOutput("Reset complete.\n");
-        for (JButton btn : nodeKillButtons) {
-            btn.setEnabled(false);
-            btn.setText("Kill Node " + (Arrays.asList(nodeKillButtons).indexOf(btn) + 1));
-        }
+        setNodeButtonsEnabled(false);
     }
 
-    // THIS IS JANK, JANK, JANK, im going crazy trying to get this to work dynamically tho 
     private void killAllNodes() {
-        stopNodeProcess(1);
-        stopNodeProcess(2);
-        stopNodeProcess(3);
+        for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
+            stopNodeProcess(id);
+        }
         appendOutput("All nodes destroyed.\n");
     }
-    // this did the same as KillAllNodes, but more dynamic im trying to build towards more then 3 nodes
+
     private void stopNodeProcess(int id) {
-        Process process = nodeProcesses[id - 1];
+        Process process = nodeProcesses.get(id - 1);
         if (process == null) {
             return;
         }
@@ -257,21 +259,21 @@ public class GUI extends JFrame {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        nodeProcesses[id - 1] = null;
+        nodeProcesses.set(id - 1, null);
     }
 
     private void startNode(int id) {
         try { //THIS is a mess. but I forgot to do it and it works
-            Process existing = nodeProcesses[id - 1];
+            Process existing = nodeProcesses.get(id - 1);
             if (existing != null && existing.isAlive()) {
                 stopNodeProcess(id); //edge case
             }
             if (delay != null && delay.isSelected()) {
-                nodeProcesses[id - 1] = new ProcessBuilder("java", "-Draft.heartbeat.delay.ms=500", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start();
+                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-Draft.heartbeat.delay.ms=500", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
             } else {
-                nodeProcesses[id - 1] = new ProcessBuilder("java", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start();
+                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -290,6 +292,7 @@ public class GUI extends JFrame {
             "src/raft_demo/RaftNode.java",
             "src/raft_demo/RaftRPC.java",
             "src/raft_demo/Client.java",
+            "src/raft_demo/RaftConfig.java",
             "src/raft_demo/GUI.java"
         );
         return result == 0;
@@ -298,12 +301,7 @@ public class GUI extends JFrame {
     
     //CLIENT
     private void onConnectClient() {
-        //PORTS (change later if figured out how to do dynamic ports)
-        Map<Integer, Integer> members = new HashMap<>();
-        members.put(1, 8102);
-        members.put(2, 8103);
-        members.put(3, 8104);
-        client = new Client(members);
+        client = new Client(RaftConfig.getClientPorts(nodeCount));
         showLeaderBtn.setEnabled(true);
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
@@ -425,6 +423,70 @@ public class GUI extends JFrame {
     private void appendOutput(String text) {
         outputArea.append(text);
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
+    }
+
+    private void onClusterSizeChanged() {
+        Integer selected = (Integer) clusterSizeDropdown.getSelectedItem();
+        if (selected == null || selected == nodeCount) {
+            return;
+        }
+        if (!startClusterBtn.isEnabled()) {
+            clusterSizeDropdown.setSelectedItem(nodeCount);
+            return;
+        }
+
+        nodeCount = selected;
+        initializeNodeState();
+        refreshNodeButtons();
+        refreshLogDropdownOptions();
+        appendOutput("Size is now " + nodeCount + " nodes.\n");
+    }
+
+    private void initializeNodeState() {
+        nodeProcesses = new ArrayList<>(Collections.nCopies(nodeCount, null));
+    }
+
+    private void refreshNodeButtons() {
+        nodeControlRow.removeAll();
+        nodeKillButtons.clear();
+
+        for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
+            JButton killBtn = new JButton("Kill Node " + id);
+            killBtn.setEnabled(false);
+            final int nodeId = id;
+            killBtn.addActionListener(e -> onKillNode(nodeId, killBtn));
+            nodeKillButtons.add(killBtn);
+            nodeControlRow.add(killBtn);
+        }
+
+        nodeControlRow.revalidate();
+        nodeControlRow.repaint();
+    }
+
+    private void setNodeButtonsEnabled(boolean enabled) {
+        for (int i = 0; i < nodeKillButtons.size(); i++) {
+            JButton btn = nodeKillButtons.get(i);
+            btn.setEnabled(enabled);
+            btn.setText("Kill Node " + (i + 1));
+        }
+    }
+
+    private void refreshLogDropdownOptions() {
+        logFiles = new ArrayList<>();
+        logDropdown.removeAllItems();
+        logDropdown.addItem("View Logs");
+        logFiles.add(null);
+
+        for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
+            logDropdown.addItem("Node " + id);
+            logFiles.add("node_" + id + ".log");
+        }
+        logDropdown.addItem("Client");
+        logFiles.add("client.log");
+
+        currentLogFile = null;
+        logRefreshTimer.stop();
+        logDropdown.setSelectedIndex(0);
     }
      //--------------------------------------------------------------------------------
     // MAIN (ENTRY POINT)
