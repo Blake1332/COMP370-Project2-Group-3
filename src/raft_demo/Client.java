@@ -12,11 +12,11 @@ import java.util.logging.Logger;
  */
 
 public class Client {
-    private final Map<Integer, Integer> clusterMembers;
+    private final Map<Integer, NodeInfo> clusterMembers;
     private Integer currentLeaderId;
     public Integer getCurrentLeaderId() { return currentLeaderId; }
     
-    public Client(Map<Integer, Integer> clusterMembers) {
+    public Client(Map<Integer, NodeInfo> clusterMembers) {
         this.clusterMembers = clusterMembers;
     }
 
@@ -29,9 +29,9 @@ public class Client {
         logger.info("Discovering leader...");
         
         // Query each member for the leader
-        for (Map.Entry<Integer, Integer> member : clusterMembers.entrySet()) {
+        for (Map.Entry<Integer, NodeInfo> member : clusterMembers.entrySet()) {
             try {
-                Integer leaderId = queryNodeForLeader(member.getValue());
+                Integer leaderId = queryNodeForLeader(member.getValue().getClientPort());
                 if (leaderId != null) {
                     currentLeaderId = leaderId;
                     logger.info("Found leader: Node " + leaderId);
@@ -77,7 +77,12 @@ public class Client {
         try {
 
             // Send request to leader's port
-            int port = clusterMembers.get(currentLeaderId);
+            NodeInfo leaderInfo = clusterMembers.get(currentLeaderId);
+            if (leaderInfo == null) {
+                currentLeaderId = null;
+                return "ERROR: Unknown leader id " + currentLeaderId;
+            }
+            int port = leaderInfo.getClientPort();
             logger.info("    Sending request to leader at port " + port);
             
             try (Socket socket = new Socket("localhost", port)) {
@@ -146,7 +151,7 @@ public class Client {
             nodeCount = Integer.parseInt(args[0]);
         }
         RaftConfig.validateClusterSize(nodeCount);
-        Client client = new Client(RaftConfig.getClientPorts(nodeCount));
+        Client client = new Client(RaftConfig.getNodeInfos(nodeCount));
         
         // Interactive mode
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));

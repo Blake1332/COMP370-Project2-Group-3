@@ -11,9 +11,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class GUI extends JFrame {
+public class GUI extends JFrame implements Observer {
 
-    private java.util.List<Process> nodeProcesses = new ArrayList<>();
+    private final Monitor monitor = Monitor.getInstance();
     private java.util.List<JButton> nodeKillButtons = new ArrayList<>();
     private JButton startClusterBtn, stopClusterBtn, connectClientBtn, showLeaderBtn, sendBtn, resetBtn;
     private JComboBox<Integer> clusterSizeDropdown;
@@ -22,7 +22,6 @@ public class GUI extends JFrame {
     private JCheckBox delay;
     private JTextField commandField;
     private JTextArea outputArea;
-    private Client client;
     private int nodeCount = RaftConfig.DEFAULT_CLUSTER_SIZE;
     private java.util.List<String> logFiles = new ArrayList<>();
     private String currentLogFile = null;
@@ -33,6 +32,7 @@ public class GUI extends JFrame {
     //--------------------------------------------------------------------------------
     public GUI() {
         super("Raft Demo GUI");
+        monitor.addObserver(this);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE); //WE NEED TO OVERRIDE THIS
         setSize(620, 520);
         setLocationRelativeTo(null);
@@ -41,7 +41,7 @@ public class GUI extends JFrame {
         //OVERRIDE THIS WILL KILL OUR WINDOW INSTEAD!
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                killAllNodes();
+                monitor.stopCluster();
                 dispose();
                 System.exit(0);
             }
@@ -85,30 +85,6 @@ public class GUI extends JFrame {
         // REFRESH THE LOGS CHANGE DELAY IF NEEDED
         logRefreshTimer = new javax.swing.Timer(2000, e -> {
             if (currentLogFile != null) readLog(currentLogFile);
-            // REFRESH LEADER STATUS IF CLIENT IS CONNECTED
-            if (client != null) {
-                new Thread(() -> {
-                    boolean found = client.discoverLeader();
-                    SwingUtilities.invokeLater(() -> {
-                        if (found) {
-                            String newLeader = getLeaderId(client);
-                            if (!newLeader.equals(lastKnownLeader)) {
-                                if (lastKnownLeader.equals("unknown")) {
-                                    appendOutput("Connected to new Leader who is node " + newLeader + "\n");
-                                } else {
-                                    appendOutput("Leader changed from node " + lastKnownLeader + " to node " + newLeader + "\n");
-                                }
-                                lastKnownLeader = newLeader;
-                            }
-                        } else {
-                            if (!lastKnownLeader.equals("unknown")) {
-                                appendOutput("Leader lost. Trying to find new leader");
-                                lastKnownLeader = "unknown";
-                            }
-                        }
-                    });
-                }).start();
-            }
         });
 
         row1.add(new JButton("Clear Output") {{
@@ -161,19 +137,11 @@ public class GUI extends JFrame {
     }
     //KILLING NODES
     private void onKillNode(int id, JButton btn) {
-        if (nodeProcesses.get(id - 1) != null) {
-            stopNodeProcess(id); 
-            appendOutput("Node " + id + " killed manually.\n");
+        if (monitor.isNodeRunning(id)) {
+            monitor.killNode(id);
             btn.setText("Restart Node " + id);
-            
-            // If the killed node was the leader, log it
-            if (lastKnownLeader.equals(String.valueOf(id))) {
-                appendOutput("Current Leader (Node " + id + ") was killed.\n");
-                lastKnownLeader = "unknown";
-            }
         } else {
-            startNode(id);
-            appendOutput("Node " + id + " restarted manually.\n");
+            monitor.restartNode(id);
             btn.setText("Kill Node " + id);
         }
     }
@@ -196,9 +164,7 @@ public class GUI extends JFrame {
                 return;
             }
             SwingUtilities.invokeLater(() -> appendOutput("Compilation successful.\n"));
-            for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
-                startNode(id);
-            }
+            monitor.startCluster(nodeCount, delay != null && delay.isSelected());
             SwingUtilities.invokeLater(() -> {
                 for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
                     appendOutput("Node " + id + " started.\n");
@@ -215,19 +181,17 @@ public class GUI extends JFrame {
 
     //--------------------------------------------------------------------------------
     private void onStopCluster() {
-        killAllNodes();
+        monitor.stopCluster();
         stopClusterBtn.setEnabled(false);
         startClusterBtn.setEnabled(true);
         clusterSizeDropdown.setEnabled(true);
-        lastKnownLeader = "unknown";
-        appendOutput("All nodes stopped.\n");
+        commandField.setEnabled(false);
+        sendBtn.setEnabled(false);
         setNodeButtonsEnabled(false);
     }
 
     private void onReset() {
-        killAllNodes();
-        client = null;
-        lastKnownLeader = "unknown";
+        monitor.stopCluster();
         startClusterBtn.setEnabled(true);
         stopClusterBtn.setEnabled(false);
         clusterSizeDropdown.setEnabled(true);
@@ -238,46 +202,6 @@ public class GUI extends JFrame {
         outputArea.setText("");
         appendOutput("Reset complete.\n");
         setNodeButtonsEnabled(false);
-    }
-
-    private void killAllNodes() {
-        for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
-            stopNodeProcess(id);
-        }
-        appendOutput("All nodes destroyed.\n");
-    }
-
-    private void stopNodeProcess(int id) {
-        Process process = nodeProcesses.get(id - 1);
-        if (process == null) {
-            return;
-        }
-
-        process.destroyForcibly();
-        try { 
-            process.waitFor(2, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        nodeProcesses.set(id - 1, null);
-    }
-
-    private void startNode(int id) {
-        try { //THIS is a mess. but I forgot to do it and it works
-            Process existing = nodeProcesses.get(id - 1);
-            if (existing != null && existing.isAlive()) {
-                stopNodeProcess(id); //edge case
-            }
-            if (delay != null && delay.isSelected()) {
-                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-Draft.heartbeat.delay.ms=500", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
-            } else {
-                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
     private boolean compileProject() {
         new File("bin").mkdirs();
@@ -293,6 +217,9 @@ public class GUI extends JFrame {
             "src/raft_demo/RaftRPC.java",
             "src/raft_demo/Client.java",
             "src/raft_demo/RaftConfig.java",
+            "src/raft_demo/NodeInfo.java",
+            "src/raft_demo/Observer.java",
+            "src/raft_demo/Monitor.java",
             "src/raft_demo/GUI.java"
         );
         return result == 0;
@@ -301,83 +228,61 @@ public class GUI extends JFrame {
     
     //CLIENT
     private void onConnectClient() {
-        client = new Client(RaftConfig.getClientPorts(nodeCount));
+        lastKnownLeader = "unknown";
+        commandField.setEnabled(false);
+        sendBtn.setEnabled(false);
         showLeaderBtn.setEnabled(true);
-
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
-        new Thread(() -> {
-            boolean found = client.discoverLeader();
-            // UPDATE THE GUI
-            SwingUtilities.invokeLater(() -> {
-                if (found) {
-                    lastKnownLeader = getLeaderId(client);
-                    commandField.setEnabled(true);
-                    sendBtn.setEnabled(true);
-                    appendOutput("Connected and current leader is Node " + lastKnownLeader + "\n");
-                } else {
-                    lastKnownLeader = "unknown";
-                    appendOutput("No leader found.\n");
-                }
-            });
-        }).start();
+        new Thread(() -> monitor.connectAndStartLeaderPolling(nodeCount)).start();
     }
 
     private void onShowCurrentLeader() {
         showLeaderBtn.setEnabled(false);
-        if (client == null) {
+        if (!monitor.isClientConnected()) {
             appendOutput("Client is not connected.\n");
             showLeaderBtn.setEnabled(false);
             return;
         }
 
-        final Client finalLeaderClient = client;
         new Thread(() -> {
             ExecutorService executor = Executors.newSingleThreadExecutor();
-            Future<Boolean> future = executor.submit(finalLeaderClient::discoverLeader);
-            boolean found = false;
+            Future<Integer> future = executor.submit(monitor::discoverLeaderOnce);
             boolean timedOut = false;
+            Integer leaderId = null;
 
             try {
-                found = future.get(5, TimeUnit.SECONDS);
+                leaderId = future.get(5, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
                 timedOut = true;
                 future.cancel(true);
-            } catch (Exception e) {
-                found = false;
+            } catch (Exception ignored) {
+                leaderId = null;
             } finally {
                 executor.shutdownNow();
             }
 
-            final boolean finalFound = found;
             final boolean finalTimedOut = timedOut;
+            final Integer finalLeaderId = leaderId;
             SwingUtilities.invokeLater(() -> {
                 if (finalTimedOut) {
                     appendOutput("timeout\n");
-                } else if (finalFound) {
-                    lastKnownLeader = getLeaderId(finalLeaderClient);
-                    appendOutput("Current leader is Node " + lastKnownLeader + "\n");
                 } else {
-                    lastKnownLeader = "unknown";
-                    appendOutput("Current leader is none.\n");
+                    if (finalLeaderId != null) {
+                        lastKnownLeader = finalLeaderId.toString();
+                        appendOutput("Current leader is Node " + lastKnownLeader + "\n");
+                    } else {
+                        lastKnownLeader = "unknown";
+                        appendOutput("Current leader is none.\n");
+                    }
                 }
                 showLeaderBtn.setEnabled(true);
             });
         }).start();
     }
 
-    //USES GETTER TO GET THE LEADER ID 
-    private String getLeaderId(Client c) {
-        Integer id = c.getCurrentLeaderId();
-        if (id == null) {
-            return "unknown";
-        }else{
-            return id.toString();
-        }
-    }
-
     private void onSendCommand() {
         String cmd = commandField.getText().trim();
-        if (cmd.isEmpty() || client == null) {
+        if (cmd.isEmpty() || !monitor.isClientConnected()) {
             return;
         }
 
@@ -386,24 +291,15 @@ public class GUI extends JFrame {
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
         new Thread(() -> {
-            String response = client.sendRequest(cmd);
+            String response = monitor.sendRequest(cmd);
             // UPDATE THE GUI ON THE MAIN THREAD
             SwingUtilities.invokeLater(() -> {
                 appendOutput("Response is " + response + "\n");
                 
                 // IF WE GOT A CONNECTION ERROR, TRY TO FIND NEW LEADER
                 if (response.contains("ERROR") || response.contains("refused")) {
-                    new Thread(() -> {
-                        if (client.discoverLeader()) {
-                            String newLeader = getLeaderId(client);
-                            SwingUtilities.invokeLater(() -> {
-                                if (!newLeader.equals(lastKnownLeader)) {
-                                    appendOutput("Reconnected to new Leader who is Node " + newLeader + "\n");
-                                    lastKnownLeader = newLeader;
-                                }
-                            });
-                        }
-                    }).start();
+                    // Leader polling may take a moment; trigger an immediate discovery+notification.
+                    new Thread(() -> monitor.discoverLeaderOnceAndNotify()).start();
                 }
             });
         }).start();
@@ -425,6 +321,77 @@ public class GUI extends JFrame {
         outputArea.setCaretPosition(outputArea.getDocument().getLength());
     }
 
+    @Override
+    public void update(String event) {
+        if (event == null) return;
+        SwingUtilities.invokeLater(() -> {
+            if (event.startsWith("CLIENT_CONNECTED:")) {
+                String leaderId = event.substring("CLIENT_CONNECTED:".length());
+                lastKnownLeader = leaderId;
+                commandField.setEnabled(true);
+                sendBtn.setEnabled(true);
+                appendOutput("Connected and current leader is Node " + lastKnownLeader + "\n");
+                return;
+            }
+
+            if (event.equals("CLIENT_NO_LEADER")) {
+                lastKnownLeader = "unknown";
+                commandField.setEnabled(false);
+                sendBtn.setEnabled(false);
+                appendOutput("No leader found.\n");
+                return;
+            }
+
+            if (event.startsWith("LEADER_CHANGED:")) {
+                String newLeaderId = event.substring("LEADER_CHANGED:".length());
+                if (!newLeaderId.equals(lastKnownLeader)) {
+                    if (lastKnownLeader.equals("unknown")) {
+                        appendOutput("Connected to new Leader who is node " + newLeaderId + "\n");
+                    } else {
+                        appendOutput("Leader changed from node " + lastKnownLeader + " to node " + newLeaderId + "\n");
+                    }
+                    lastKnownLeader = newLeaderId;
+                }
+                return;
+            }
+
+            if (event.equals("LEADER_LOST")) {
+                if (!"unknown".equals(lastKnownLeader)) {
+                    appendOutput("Leader lost. Trying to find new leader\n");
+                    lastKnownLeader = "unknown";
+                }
+                return;
+            }
+
+            if (event.equals("CLIENT_DISCONNECTED")) {
+                lastKnownLeader = "unknown";
+                commandField.setEnabled(false);
+                sendBtn.setEnabled(false);
+                return;
+            }
+
+            if (event.equals("CLUSTER_STOPPED")) {
+                appendOutput("All nodes stopped.\n");
+                return;
+            }
+
+            if (event.startsWith("NODE_KILLED:")) {
+                String killedId = event.substring("NODE_KILLED:".length());
+                appendOutput("Node " + killedId + " killed manually.\n");
+                if (lastKnownLeader.equals(killedId)) {
+                    // Leader polling will emit LEADER_LOST, but this keeps the UI responsive.
+                    lastKnownLeader = "unknown";
+                }
+                return;
+            }
+
+            if (event.startsWith("NODE_RESTARTED:")) {
+                String restartedId = event.substring("NODE_RESTARTED:".length());
+                appendOutput("Node " + restartedId + " restarted manually.\n");
+            }
+        });
+    }
+
     private void onClusterSizeChanged() {
         Integer selected = (Integer) clusterSizeDropdown.getSelectedItem();
         if (selected == null || selected == nodeCount) {
@@ -443,7 +410,7 @@ public class GUI extends JFrame {
     }
 
     private void initializeNodeState() {
-        nodeProcesses = new ArrayList<>(Collections.nCopies(nodeCount, null));
+        // No per-node process state lives in the GUI anymore.
     }
 
     private void refreshNodeButtons() {

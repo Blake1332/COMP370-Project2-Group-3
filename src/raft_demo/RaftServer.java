@@ -374,7 +374,7 @@ public class RaftServer {
             return;
         }
 
-        Map<Integer, Integer> members = RaftConfig.getClusterMembers(nodeCount);
+        Map<Integer, NodeInfo> nodeInfos = RaftConfig.getNodeInfos(nodeCount);
 
         if (!RaftConfig.isValidNodeId(id, nodeCount)) { //same deal as above *2
             System.out.println("Invalid Node ID: " + id);
@@ -382,8 +382,21 @@ public class RaftServer {
         }
 
 
-        int port = members.get(id);
-        int clientPort = RaftConfig.clientPort(id);
+        NodeInfo self = nodeInfos.get(id);
+        if (self == null) {
+            System.out.println("No configuration found for Node ID: " + id);
+            return;
+        }
+
+        int port = self.getUdpPort();
+        int clientPort = self.getClientPort();
+
+        // Legacy clusterMembers map (id -> UDP port) derived from NodeInfo occurrences.
+        Map<Integer, Integer> members = new HashMap<>();
+        for (Map.Entry<Integer, NodeInfo> entry : nodeInfos.entrySet()) {
+            members.put(entry.getKey(), entry.getValue().getUdpPort());
+        }
+
         RaftServer server = new RaftServer(id, port, clientPort, members);
 
         // Add shutdown hook for graceful termination
