@@ -1,30 +1,48 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#EAF4FF", "primaryTextColor": "#0F172A", "primaryBorderColor": "#1E3A8A", "lineColor": "#334155", "secondaryColor": "#FFF7E6", "tertiaryColor": "#F8FAFC", "fontFamily": "Trebuchet MS"}}}%%
 flowchart LR
-    %% COMP370 Mini Project 1 - Use Case Diagram
+    %% COMP370 Mini Project 2 - Use Case Diagram (Bhupinder Branch)
     Admin[System Admin]
     User[Service Client]
 
-    subgraph SRMS[Server Redundancy Management System]
+    subgraph RDS[Raft Demo System]
       UC1((Start / Stop Cluster))
-      UC2((Monitor Server Health))
-      UC3((Detect Primary Failure))
-      UC4((Promote Backup to Primary))
-      UC5((Discover Current Primary))
-      UC6((Send PROCESS Request))
-      UC7((Replicate State to Backups))
-      UC8((View Logs and Status))
-      UC9((Simulate Failure Scenario))
+      UC2((Select Cluster Size))
+      UC3((Connect Client to Cluster))
+      UC4((Discover Current Leader))
+      UC5((Submit PROCESS_JOB Request))
+      UC6((Replicate Log Entries))
+      UC7((Commit and Apply State))
+      UC8((Trigger Leader Election))
+      UC9((Handle Leader Failover))
+      UC10((Kill / Restart Node))
+      UC11((Simulate Network Delay))
+      UC12((View Logs and Status))
+      UC13((Show Current Leader))
+      UC14((Reset Demo Environment))
+      UC15((Receive Leader / Cluster Status Updates))
     end
 
     Admin --> UC1
     Admin --> UC2
-    Admin --> UC8
-    Admin --> UC9
+    Admin --> UC3
+    Admin --> UC10
+    Admin --> UC11
+    Admin --> UC12
+    Admin --> UC13
+    Admin --> UC14
+    Admin --> UC15
 
+    User --> UC4
     User --> UC5
-    User --> UC6
 
-    UC2 --> UC3
     UC3 --> UC4
+    UC3 --> UC15
     UC5 --> UC6
     UC6 --> UC7
+    UC10 --> UC8
+    UC10 --> UC15
+    UC11 --> UC9
+    UC8 --> UC9
+    UC9 --> UC4
+    UC9 --> UC15
+    UC13 --> UC4

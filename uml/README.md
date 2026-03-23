@@ -1,33 +1,60 @@
-# UML diagrams for COMP370 Mini Project 1 (SRMS)
+# UML Diagrams for COMP370 Mini Project 2 (SRMS)
 
-All diagrams are provided both as Mermaid source (.mmd) and exported PNG artifacts in /exports.
+All diagrams are provided as:
+- Mermaid source files (`.mmd`)
+- Exported PNG files in the `/exports` folder
 
-This set is aligned to the Step 2 rubric in the project specification:
-- Use case diagram
-- Class diagram
+This set satisfies the UML requirements outlined in Step 5 (Refactor Code and UML).
+- Use Case Diagram
+- Class Diagram
 - Sequence: Startup + Leader Election
-- Sequence: Client Request (normal)
-- Sequence: Client Request (during failover)
+- Sequence: Client Request (Normal)
+- Sequence: Client Request (Failover)
 
-## Files
-- `use-case-diagram.mmd`
-- `class-diagram-required.mmd`
-- `sequence-startup-and-election.mmd`
-- `sequence-client-normal.mmd`
-- `sequence-client-failover.mmd`
+---
 
-## Optional supporting files
-- `class-diagram.mmd` (previous detailed class diagram)
-- `state-diagram-raft-node.mmd` (extra, not required but useful)
+## Diagram Files
 
-## Rendering workflow used
-Diagrams were rendered locally using VS Code with Mermaid preview support.
+### Use Case Diagram
+- Source: `use-case-diagram.mmd`
+- Export: `exports/use-case-diagram.png`
+
+---
+
+### Class Diagram
+- Source: `class-diagram-required.mmd`
+- Export: `exports/class-diagram-required.png`
+
+---
+
+### Sequence Diagrams
+
+#### 1. Startup and Leader Election
+- Source: `sequence-startup-and-election.mmd`
+- Export: `exports/sequence-startup-and-election.png`
+
+#### 2. Client Request (Normal)
+- Source: `sequence-client-normal.mmd`
+- Export: `exports/sequence-client-normal.png`
+
+#### 3. Client Request (Failover)
+- Source: `sequence-client-failover.mmd`
+- Export: `exports/sequence-client-failover.png`
+
+---
+
+## Rendering Workflow
+
+Diagrams were created using Mermaid and rendered locally via VS Code.
 
 Process:
 1. Open `.mmd` file
-2. Paste into preview.md Mermaid block
-3. Render in VS Code preview
-4. Export via screenshot to PNG
+2. Render using Mermaid preview
+3. Export to PNG for submission
 
-## Important note for report accuracy
-The implementation uses a Raft-style election and no separate monitor process. This is stated explicitly in the report/slides as a design choice relative to the "primary-backup + monitor" example architecture in the project brief.
+---
+
+## Design Note
+
+The system uses a Raft-style consensus approach for leader election and log replication.  
+No separate monitor process is used; this is an intentional design decision and is explained in the report.

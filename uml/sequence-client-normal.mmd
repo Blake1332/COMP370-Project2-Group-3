@@ -1,28 +1,39 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#EAF4FF", "primaryTextColor": "#0F172A", "primaryBorderColor": "#1E3A8A", "lineColor": "#334155", "secondaryColor": "#FFF7E6", "tertiaryColor": "#F8FAFC", "fontFamily": "Trebuchet MS"}}}%%
 sequenceDiagram
-    %% COMP370 Mini Project 1 - Sequence: Client Request (Normal)
+    %% COMP370 Mini Project 2 - Sequence: Client Request (Normal, Bhupinder Branch)
     autonumber
+    participant G as GUI
+    participant M as Monitor
     participant C as Client
-    participant N as Queried Node
-    participant L as Current Leader
-    participant B1 as Backup 1
-    participant B2 as Backup 2
+    participant N1 as Node 1
+    participant N2 as Node 2
+    participant L as Leader Node
+    participant F as Follower Node
 
-    C->>N: GET_LEADER
-    N-->>C: leaderId = L
+    G->>M: connectAndStartLeaderPolling(nodeCount)
+    M->>C: discoverLeader()
+    C->>N1: GET_LEADER
+    N1-->>C: ClientResponse(success=true, leaderId=null)
+    C->>N2: GET_LEADER
+    N2-->>C: ClientResponse(success=true, leaderId=L)
+    M-->>G: update("CLIENT_CONNECTED:L")
 
+    G->>M: sendRequest(command)
+    M->>C: sendRequest(command)
     C->>L: PROCESS_JOB(command)
+    L->>L: handleClientConnection(request)
     L->>L: appendAsLeader(command)
+    L-->>C: ClientResponse(success=true, message="Job accepted by leader...")
+    C-->>M: return success message
+    M-->>G: response string
 
-    par replicate to backups
-      L->>B1: AppendEntriesArgs(entries)
-      B1-->>L: AppendEntriesResults(success)
-    and
-      L->>B2: AppendEntriesArgs(entries)
-      B2-->>L: AppendEntriesResults(success)
-    end
-    Note over L: majority replicated → commit
+    Note over L,F: Replication happens in the leader heartbeat cycle
+    L->>L: sendHeartbeats()
+    L->>F: AppendEntriesArgs(term, leaderId, prevLogIndex, prevLogTerm, entries, leaderCommit)
+    F->>F: handleAppendEntries(args)
+    F-->>L: AppendEntriesResults(term, success=true)
+    L->>L: handleAppendEntriesResult(...)
+    L->>L: updateCommitIndex()
 
-
-    L->>L: updateCommitIndex()\napply committed entry
-    L-->>C: success=true, "Job accepted"
+    Note over L: Committed entries are applied in the main loop
+    L->>L: apply committed log entry to state machine

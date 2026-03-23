@@ -1,34 +1,50 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#EAF4FF", "primaryTextColor": "#0F172A", "primaryBorderColor": "#1E3A8A", "lineColor": "#334155", "secondaryColor": "#FFF7E6", "tertiaryColor": "#F8FAFC", "fontFamily": "Trebuchet MS"}}}%%
 sequenceDiagram
-    %% COMP370 Mini Project 1 - Sequence: Startup and Leader Election
+    %% COMP370 Mini Project 2 - Sequence: Startup and Leader Election
     autonumber
     participant S1 as Server 1
     participant S2 as Server 2
     participant S3 as Server 3
 
     Note over S1,S3: Cluster startup
-    S1->>S1: start() main loop
-    S2->>S2: start() main loop
-    S3->>S3: start() main loop
+    S1->>S1: start() launches UDP listener, TCP listener, main loop
+    S2->>S2: start() launches UDP listener, TCP listener, main loop
+    S3->>S3: start() launches UDP listener, TCP listener, main loop
 
-    Note over S1,S3: Election timeout on S1
-    S1->>S1: startElection()\nrole=CANDIDATE, term++, self-vote
-    S1->>S2: RequestVoteArgs(term, candidateId, lastLog)
-    S1->>S3: RequestVoteArgs(term, candidateId, lastLog)
+    loop Tick every 500 ms
+      S1->>S1: check role and election timeout
+      S2->>S2: check role and election timeout
+      S3->>S3: check role and election timeout
+    end
 
-    S2->>S2: handleRequestVote()
-    S3->>S3: handleRequestVote()
-    S2-->>S1: voteGranted=true
-    S3-->>S1: voteGranted=true
+    Note over S1: Election timeout expires first
+    S1->>S1: startElection()\nrole=CANDIDATE, term++, self-vote, reset timeout
+    S1->>S2: RequestVoteArgs(term, candidateId, lastLogIndex, lastLogTerm)
+    S1->>S3: RequestVoteArgs(term, candidateId, lastLogIndex, lastLogTerm)
 
+    S2->>S2: handleRequestVote(args)
+    S2->>S2: compare term, vote state, and log freshness
+    S2-->>S1: RequestVoteResults(term, voteGranted=true)
+
+    S3->>S3: handleRequestVote(args)
+    S3->>S3: compare term, vote state, and log freshness
+    S3-->>S1: RequestVoteResults(term, voteGranted=true)
+
+    S1->>S1: handleVoteResult(res)\nvotesReceived++
     S1->>S1: majority reached
-    S1->>S1: becomeLeader()
-    Note over S1: Leader elected
+    S1->>S1: becomeLeader()\ncurrentLeaderId=id, init nextIndex/matchIndex
+    Note over S1: Leader elected for current term
 
+    loop Heartbeat / replication cycle
+      S1->>S1: sendHeartbeats()
+      S1->>S2: AppendEntriesArgs(term, leaderId, prevLogIndex, prevLogTerm, entries?, leaderCommit)
+      S1->>S3: AppendEntriesArgs(term, leaderId, prevLogIndex, prevLogTerm, entries?, leaderCommit)
 
-    loop Heartbeat cycle
-      S1->>S2: AppendEntriesArgs(heartbeat)
-      S1->>S3: AppendEntriesArgs(heartbeat)
-      S2-->>S1: AppendEntriesResults(success)
-      S3-->>S1: AppendEntriesResults(success)
+      S2->>S2: handleAppendEntries(args)\nreset timeout, record leader, stay FOLLOWER
+      S2-->>S1: AppendEntriesResults(term, success=true)
+
+      S3->>S3: handleAppendEntries(args)\nreset timeout, record leader, stay FOLLOWER
+      S3-->>S1: AppendEntriesResults(term, success=true)
+
+      S1->>S1: handleAppendEntriesResult(...)\nupdate follower progress
     end

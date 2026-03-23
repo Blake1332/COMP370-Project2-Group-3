@@ -1,26 +1,41 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#EAF4FF", "primaryTextColor": "#0F172A", "primaryBorderColor": "#1E3A8A", "lineColor": "#334155", "secondaryColor": "#FFF7E6", "tertiaryColor": "#F8FAFC", "fontFamily": "Trebuchet MS"}}}%%
 sequenceDiagram
+    %% COMP370 Mini Project 2 - Sequence: Client Request (During Failover, Bhupinder Branch)
     autonumber
+    participant G as GUI
+    participant M as Monitor
     participant C as Client
-    participant P as Old Primary
-    participant B1 as Backup Candidate
-    participant B2 as Backup Candidate
+    participant OL as Old Leader
+    participant F1 as Follower 1
+    participant F2 as Follower 2
+    participant NL as New Leader
 
-    C->>P: PROCESS_JOB(command)
-    Note over P: Primary crashes / unreachable
-    P--x C: timeout / connection error
+    G->>M: sendRequest(command)
+    M->>C: sendRequest(command)
+    C->>OL: PROCESS_JOB(command)
+    Note over OL: Old leader crashes or becomes unreachable
+    OL--x C: socket error / timeout
+    C->>C: clear cached currentLeaderId
+    C-->>M: return ERROR message
+    M-->>G: response string
 
-    B1->>B1: election timeout
-    B1->>B2: RequestVoteArgs(...)
-    B2-->>B1: voteGranted=true
-    B1->>B1: becomeLeader()
-    Note over B1: becomes new leader
+    G->>M: discoverLeaderOnceAndNotify()
 
-    C->>C: clear cached leader
-    C->>B1: GET_LEADER
-    B1-->>C: leaderId = B1
+    Note over F1,F2: Remaining servers detect missing heartbeats
+    F1->>F1: election timeout expires
+    F1->>F1: startElection()\nbecome CANDIDATE, self-vote
+    F1->>F2: RequestVoteArgs(term, candidateId, lastLogIndex, lastLogTerm)
+    F2->>F2: handleRequestVote(args)
+    F2-->>F1: RequestVoteResults(term, voteGranted=true)
+    F1->>F1: handleVoteResult(res)\nmajority reached
+    F1->>F1: becomeLeader()
+    Note over F1: New leader elected
 
-    C->>B1: PROCESS_JOB(retry)
-    B1->>B2: AppendEntriesArgs(entries)
-    B2-->>B1: AppendEntriesResults(success)
-    B1-->>C: success=true
+    M->>C: discoverLeader()
+    C->>F2: GET_LEADER
+    F2-->>C: ClientResponse(success=true, leaderId=null)
+    C->>NL: GET_LEADER
+    NL-->>C: ClientResponse(success=true, leaderId=NL)
+    M-->>G: update("CLIENT_CONNECTED:NL") or update("LEADER_CHANGED:NL")
+
+    Note over G: User can resend command after reconnection

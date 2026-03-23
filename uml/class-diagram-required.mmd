@@ -1,22 +1,106 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryColor": "#EAF4FF", "primaryTextColor": "#0F172A", "primaryBorderColor": "#1E3A8A", "lineColor": "#334155", "secondaryColor": "#FFF7E6", "tertiaryColor": "#F8FAFC", "fontFamily": "Trebuchet MS"}}}%%
 classDiagram
-    %% COMP370 Mini Project 1 - Class Diagram
-    class Logger {
-      -String serverId
-      -PrintWriter fileWriter
-      +log(message)
-      +close()
+    %% COMP370 Mini Project 2 - Class Diagram (Bhupinder Branch)
+    class RaftConfig {
+      <<utility>>
+      +int UDP_BASE_PORT
+      +int CLIENT_BASE_PORT
+      +int MIN_NODE_ID
+      +int MIN_CLUSTER_SIZE
+      +int MAX_CLUSTER_SIZE
+      +int DEFAULT_CLUSTER_SIZE
+      +getNodeInfos(nodeCount) Map~Integer,NodeInfo~
+      +getClusterMembers(nodeCount) Map~Integer,Integer~
+      +getClientPorts(nodeCount) Map~Integer,Integer~
+      +clientPort(id) int
+      +UDPPort(id) int
+      +isValidNodeId(id, nodeCount) bool
+      +validateClusterSize(nodeCount)
+    }
+
+    class NodeInfo {
+      -int id
+      -String host
+      -int udpPort
+      -int clientPort
+      +getId() int
+      +getHost() String
+      +getUdpPort() int
+      +getClientPort() int
+    }
+
+    class JavaLogger {
+      <<external>>
+    }
+
+    class Observer {
+      <<interface>>
+      +update(event)
+    }
+
+    class Monitor {
+      <<singleton>>
+      -Logger logger
+      -Monitor instance
+      -Object clientLock
+      -CopyOnWriteArrayList~Observer~ observers
+      -Map~Integer,Process~ nodeProcesses
+      -int nodeCount
+      -boolean simulateDelay
+      -Client client
+      -Integer lastLeaderId
+      -boolean leaderPolling
+      -Thread leaderPollingThread
+      +getInstance() Monitor
+      +addObserver(observer)
+      +removeObserver(observer)
+      +isNodeRunning(id) bool
+      +startCluster(nodeCount, simulateDelay)
+      +stopCluster()
+      +killNode(id)
+      +restartNode(id)
+      +connectAndStartLeaderPolling(nodeCount)
+      +discoverLeaderOnce() Integer
+      +discoverLeaderOnceAndNotify()
+      +sendRequest(command) String
+      +stopLeaderPolling()
+      +isClientConnected() bool
     }
 
     class RaftRPC {
       <<utility>>
     }
 
-    class RequestVoteArgs
-    class RequestVoteResults
-    class AppendEntriesArgs
-    class AppendEntriesResults
-    class LogEntry
+    class RequestVoteArgs {
+      +int term
+      +int candidateId
+      +int lastLogIndex
+      +int lastLogTerm
+    }
+
+    class RequestVoteResults {
+      +int term
+      +boolean voteGranted
+    }
+
+    class AppendEntriesArgs {
+      +int term
+      +int leaderId
+      +int prevLogIndex
+      +int prevLogTerm
+      +List~LogEntry~ entries
+      +int leaderCommit
+    }
+
+    class AppendEntriesResults {
+      +int term
+      +boolean success
+    }
+
+    class LogEntry {
+      +int term
+      +String command
+    }
 
     class RaftNode {
       +int id
@@ -30,6 +114,9 @@ classDiagram
       +Map~Integer,Integer~ matchIndex
       +Map~Integer,Integer~ nextIndex
       +Map~Integer,Integer~ clusterMembers
+      +long electionTimeout
+      +long lastHeartbeat
+      +setLogger(logger)
       +resetElectionTimeout()
       +isElectionTimeout() bool
       +handleRequestVote(args) RequestVoteResults
@@ -55,6 +142,7 @@ classDiagram
       -int clientPort
       -Logger logger
       -Map~Integer,Integer~ lastSentIndexByFollower
+      -int votesReceived
       +start()
       -handlePacket(packet)
       -startElection()
@@ -62,16 +150,22 @@ classDiagram
       -sendHeartbeats()
       -handleAppendEntriesResult(res, fromId)
       -updateCommitIndex()
+      -sendRequest(obj, host, port)
+      -sendResponse(obj, address, port)
+      -serialize(obj) byte[]
+      -deserialize(data) Object
       -handleClientConnection(client)
       +main(args)
     }
 
     class Client {
-      -Map~Integer,Integer~ clusterMembers
+      -Map~Integer,NodeInfo~ clusterMembers
       -Integer currentLeaderId
-      +discoverLeader() bool
-      +sendRequest(command) String
+      -Logger logger
       +getCurrentLeaderId() Integer
+      +discoverLeader() bool
+      -queryNodeForLeader(port) Integer
+      +sendRequest(command) String
       +main(args)
     }
 
@@ -93,20 +187,60 @@ classDiagram
     }
 
     class GUI {
-      -Process[] nodeProcesses
-      -Client client
-      +main(args)
+      -Monitor monitor
+      -List~JButton~ nodeKillButtons
+      -JButton startClusterBtn
+      -JButton stopClusterBtn
+      -JButton connectClientBtn
+      -JButton showLeaderBtn
+      -JButton sendBtn
+      -JButton resetBtn
+      -JComboBox~Integer~ clusterSizeDropdown
+      -JComboBox~String~ logDropdown
+      -JPanel nodeControlRow
+      -JCheckBox delay
+      -JTextField commandField
+      -JTextArea outputArea
+      -int nodeCount
+      -List~String~ logFiles
+      -String currentLogFile
+      -Timer logRefreshTimer
+      -String lastKnownLeader
+      -buildUI()
       -onStartCluster()
       -onStopCluster()
+      -onReset()
       -onConnectClient()
+      -onShowCurrentLeader()
       -onSendCommand()
+      -onKillNode(id, btn)
+      -onClusterSizeChanged()
+      -compileProject() bool
+      -readLog(filename)
+      -appendOutput(text)
+      +update(event)
+      -refreshNodeButtons()
+      -refreshLogDropdownOptions()
+      -initializeNodeState()
+      -setNodeButtonsEnabled(enabled)
+      +main(args)
     }
+
+    GUI ..|> Observer
+    GUI --> Monitor
+    Monitor o-- Observer
+    Monitor --> Client
+    Monitor ..> RaftConfig
+    Monitor --> JavaLogger
+
+    RaftConfig ..> NodeInfo
+    Client --> NodeInfo
+    RaftServer ..> NodeInfo : startup config only
 
     RaftServer *-- RaftNode
     RaftNode --> Role
-    RaftNode --> Logger
     RaftNode o-- LogEntry
-    RaftServer --> Logger
+    RaftNode --> JavaLogger
 
     RaftRPC ..> RequestVoteArgs
     RaftRPC ..> RequestVoteResults
@@ -117,12 +251,11 @@ classDiagram
     RaftServer ..> RaftRPC
     RaftServer ..> ClientRequest
     RaftServer ..> ClientResponse
+    RaftServer ..> RaftConfig
+    RaftServer --> JavaLogger
 
     Client ..> ClientRequest
     Client ..> ClientResponse
     ClientRequest --> RequestType
-    Client --> Logger
-
-    GUI --> Client
-    GUI ..> RaftServer : starts 3 processes
-
+    Client ..> RaftConfig
+    Client --> JavaLogger
