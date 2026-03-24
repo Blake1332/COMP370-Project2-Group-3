@@ -13,7 +13,7 @@ import java.util.concurrent.TimeoutException;
 
 public class GUI extends JFrame {
 
-    private java.util.List<Process> nodeProcesses = new ArrayList<>();
+    private final Monitor monitor = Monitor.getInstance();
     private java.util.List<JButton> nodeKillButtons = new ArrayList<>();
     private JButton startClusterBtn, stopClusterBtn, connectClientBtn, showLeaderBtn, sendBtn, resetBtn;
     private JComboBox<Integer> clusterSizeDropdown;
@@ -22,7 +22,6 @@ public class GUI extends JFrame {
     private JCheckBox delay;
     private JTextField commandField;
     private JTextArea outputArea;
-    private Client client;
     private int nodeCount = RaftConfig.DEFAULT_CLUSTER_SIZE;
     private java.util.List<String> logFiles = new ArrayList<>();
     private String currentLogFile = null;
@@ -86,29 +85,31 @@ public class GUI extends JFrame {
         logRefreshTimer = new javax.swing.Timer(2000, e -> {
             if (currentLogFile != null) readLog(currentLogFile);
             // REFRESH LEADER STATUS IF CLIENT IS CONNECTED
-            if (client != null) {
-                new Thread(() -> {
-                    boolean found = client.discoverLeader();
-                    SwingUtilities.invokeLater(() -> {
-                        if (found) {
-                            String newLeader = getLeaderId(client);
-                            if (!newLeader.equals(lastKnownLeader)) {
-                                if (lastKnownLeader.equals("unknown")) {
-                                    appendOutput("Connected to new Leader who is node " + newLeader + "\n");
-                                } else {
-                                    appendOutput("Leader changed from node " + lastKnownLeader + " to node " + newLeader + "\n");
-                                }
-                                lastKnownLeader = newLeader;
-                            }
-                        } else {
-                            if (!lastKnownLeader.equals("unknown")) {
-                                appendOutput("Leader lost. Trying to find new leader");
-                                lastKnownLeader = "unknown";
-                            }
-                        }
-                    });
-                }).start();
+            Client client = monitor.getClient();
+            if (client == null) {
+                return;
             }
+            new Thread(() -> {
+                boolean found = client.discoverLeader();
+                SwingUtilities.invokeLater(() -> {
+                    if (found) {
+                        String newLeader = getLeaderId(client);
+                        if (!newLeader.equals(lastKnownLeader)) {
+                            if (lastKnownLeader.equals("unknown")) {
+                                appendOutput("Connected to new Leader who is node " + newLeader + "\n");
+                            } else {
+                                appendOutput("Leader changed from node " + lastKnownLeader + " to node " + newLeader + "\n");
+                            }
+                            lastKnownLeader = newLeader;
+                        }
+                    } else {
+                        if (!lastKnownLeader.equals("unknown")) {
+                            appendOutput("Leader lost. Trying to find new leader");
+                            lastKnownLeader = "unknown";
+                        }
+                    }
+                });
+            }).start();
         });
 
         row1.add(new JButton("Clear Output") {{
@@ -161,8 +162,8 @@ public class GUI extends JFrame {
     }
     //KILLING NODES
     private void onKillNode(int id, JButton btn) {
-        if (nodeProcesses.get(id - 1) != null) {
-            stopNodeProcess(id); 
+        if (monitor.getNodeProcess(id) != null) {
+            monitor.stopNodeProcess(id);
             appendOutput("Node " + id + " killed manually.\n");
             btn.setText("Restart Node " + id);
             
@@ -172,7 +173,7 @@ public class GUI extends JFrame {
                 lastKnownLeader = "unknown";
             }
         } else {
-            startNode(id);
+            monitor.startNode(id, nodeCount, delay != null && delay.isSelected());
             appendOutput("Node " + id + " restarted manually.\n");
             btn.setText("Kill Node " + id);
         }
@@ -196,8 +197,9 @@ public class GUI extends JFrame {
                 return;
             }
             SwingUtilities.invokeLater(() -> appendOutput("Compilation successful.\n"));
+            boolean simDelay = delay != null && delay.isSelected();
             for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
-                startNode(id);
+                monitor.startNode(id, nodeCount, simDelay);
             }
             SwingUtilities.invokeLater(() -> {
                 for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
@@ -226,7 +228,7 @@ public class GUI extends JFrame {
 
     private void onReset() {
         killAllNodes();
-        client = null;
+        monitor.clearClient();
         lastKnownLeader = "unknown";
         startClusterBtn.setEnabled(true);
         stopClusterBtn.setEnabled(false);
@@ -241,43 +243,8 @@ public class GUI extends JFrame {
     }
 
     private void killAllNodes() {
-        for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
-            stopNodeProcess(id);
-        }
+        monitor.stopAllNodes(nodeCount);
         appendOutput("All nodes destroyed.\n");
-    }
-
-    private void stopNodeProcess(int id) {
-        Process process = nodeProcesses.get(id - 1);
-        if (process == null) {
-            return;
-        }
-
-        process.destroyForcibly();
-        try { 
-            process.waitFor(2, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        nodeProcesses.set(id - 1, null);
-    }
-
-    private void startNode(int id) {
-        try { //THIS is a mess. but I forgot to do it and it works
-            Process existing = nodeProcesses.get(id - 1);
-            if (existing != null && existing.isAlive()) {
-                stopNodeProcess(id); //edge case
-            }
-            if (delay != null && delay.isSelected()) {
-                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-Draft.heartbeat.delay.ms=500", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
-            } else {
-                nodeProcesses.set(id - 1, new ProcessBuilder("java", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(nodeCount))
-                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
     }
     private boolean compileProject() {
         new File("bin").mkdirs();
@@ -293,6 +260,7 @@ public class GUI extends JFrame {
             "src/raft_demo/RaftRPC.java",
             "src/raft_demo/Client.java",
             "src/raft_demo/RaftConfig.java",
+            "src/raft_demo/Monitor.java",
             "src/raft_demo/GUI.java"
         );
         return result == 0;
@@ -301,11 +269,12 @@ public class GUI extends JFrame {
     
     //CLIENT
     private void onConnectClient() {
-        client = new Client(RaftConfig.getClientPorts(nodeCount));
+        monitor.connectClient(RaftConfig.getClientPorts(nodeCount));
         showLeaderBtn.setEnabled(true);
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
         new Thread(() -> {
+            Client client = monitor.getClient();
             boolean found = client.discoverLeader();
             // UPDATE THE GUI
             SwingUtilities.invokeLater(() -> {
@@ -324,13 +293,13 @@ public class GUI extends JFrame {
 
     private void onShowCurrentLeader() {
         showLeaderBtn.setEnabled(false);
-        if (client == null) {
+        if (monitor.getClient() == null) {
             appendOutput("Client is not connected.\n");
             showLeaderBtn.setEnabled(false);
             return;
         }
 
-        final Client finalLeaderClient = client;
+        final Client finalLeaderClient = monitor.getClient();
         new Thread(() -> {
             ExecutorService executor = Executors.newSingleThreadExecutor();
             Future<Boolean> future = executor.submit(finalLeaderClient::discoverLeader);
@@ -377,7 +346,7 @@ public class GUI extends JFrame {
 
     private void onSendCommand() {
         String cmd = commandField.getText().trim();
-        if (cmd.isEmpty() || client == null) {
+        if (cmd.isEmpty() || monitor.getClient() == null) {
             return;
         }
 
@@ -386,6 +355,7 @@ public class GUI extends JFrame {
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE
         new Thread(() -> {
+            Client client = monitor.getClient();
             String response = client.sendRequest(cmd);
             // UPDATE THE GUI ON THE MAIN THREAD
             SwingUtilities.invokeLater(() -> {
@@ -443,7 +413,7 @@ public class GUI extends JFrame {
     }
 
     private void initializeNodeState() {
-        nodeProcesses = new ArrayList<>(Collections.nCopies(nodeCount, null));
+        monitor.initializeForClusterSize(nodeCount);
     }
 
     private void refreshNodeButtons() {
