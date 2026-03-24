@@ -13,6 +13,7 @@ public class Monitor {
 
     private List<Process> nodeProcesses = new ArrayList<>();
     private Client client;
+    private final List<Observer> observers = new ArrayList<>();
 
     private Monitor() {
     }
@@ -24,8 +25,23 @@ public class Monitor {
         return instance;
     }
 
+    public void addObserver(Observer o) {
+        observers.add(o);
+    }
+
+    public void removeObserver(Observer o) {
+        observers.remove(o);
+    }
+
+    public void notifyObservers(String event) {
+        for (Observer o : new ArrayList<>(observers)) {
+            o.update(event);
+        }
+    }
+
     public void initializeForClusterSize(int nodeCount) {
         nodeProcesses = new ArrayList<>(Collections.nCopies(nodeCount, null));
+        notifyObservers("cluster_initialized");
     }
 
     public Process getNodeProcess(int id) {
@@ -45,6 +61,7 @@ public class Monitor {
                 nodeProcesses.set(id - 1, new ProcessBuilder("java", "-cp", "bin", "raft_demo.RaftServer", String.valueOf(id), String.valueOf(clusterSize))
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.INHERIT).start());
             }
+            notifyObservers("node_started:" + id);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -63,20 +80,24 @@ public class Monitor {
             Thread.currentThread().interrupt();
         }
         nodeProcesses.set(id - 1, null);
+        notifyObservers("node_stopped:" + id);
     }
 
     public void stopAllNodes(int nodeCount) {
         for (int id = RaftConfig.MIN_NODE_ID; id <= nodeCount; id++) {
             stopNodeProcess(id);
         }
+        notifyObservers("all_nodes_stopped");
     }
 
     public void connectClient(Map<Integer, Integer> ports) {
         client = new Client(ports);
+        notifyObservers("client_connected");
     }
 
     public void clearClient() {
         client = null;
+        notifyObservers("client_cleared");
     }
 
     public Client getClient() {

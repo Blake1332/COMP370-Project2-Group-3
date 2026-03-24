@@ -11,7 +11,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class GUI extends JFrame {
+public class GUI extends JFrame implements Observer {
 
     private final Monitor monitor = Monitor.getInstance();
     private java.util.List<JButton> nodeKillButtons = new ArrayList<>();
@@ -47,6 +47,7 @@ public class GUI extends JFrame {
         });
 
         buildUI();
+        monitor.addObserver(this);
     }
 
     private void buildUI() {
@@ -261,6 +262,7 @@ public class GUI extends JFrame {
             "src/raft_demo/Client.java",
             "src/raft_demo/RaftConfig.java",
             "src/raft_demo/Monitor.java",
+            "src/raft_demo/Observer.java",
             "src/raft_demo/GUI.java"
         );
         return result == 0;
@@ -458,6 +460,12 @@ public class GUI extends JFrame {
         logRefreshTimer.stop();
         logDropdown.setSelectedIndex(0);
     }
+
+    @Override
+    public void update(String event) {
+        SwingUtilities.invokeLater(() -> outputArea.setToolTipText("Last monitor event: " + event));
+    }
+
      //--------------------------------------------------------------------------------
     // MAIN (ENTRY POINT)
 
