@@ -12,13 +12,25 @@ public final class RaftConfig {
     public static final int MAX_CLUSTER_SIZE = 7;
     public static final int DEFAULT_CLUSTER_SIZE = MIN_CLUSTER_SIZE;
 
+   
+
+    public static Map<Integer, NodeInfo> getNodeInfos(int nodeCount) {
+        validateClusterSize(nodeCount);
+        Map<Integer, NodeInfo> infos = new HashMap<>();
+        for (int id = MIN_NODE_ID; id <= nodeCount; id++) {
+            int udp = UDP_BASE_PORT + id;
+            infos.put(id, new NodeInfo(id, "localhost" , udp, clientPort(id)));
+        }
+        return infos;
+    }
+
     public static Map<Integer, Integer> getClusterMembers(int nodeCount) {
         validateClusterSize(nodeCount); //this gets the cluser members like 1-> 9102, 2-> 9103, 3-> 9104
         Map<Integer, Integer> members = new HashMap<>();
         for (int id = MIN_NODE_ID; id <= nodeCount; id++) {
-            members.put(id, UDP_BASE_PORT + id);
+            members.put(id, UDPPort(id));
         }
-        return members; 
+        return members;
     }
 
     public static Map<Integer, Integer> getClientPorts(int nodeCount) {

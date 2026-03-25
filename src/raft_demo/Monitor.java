@@ -90,8 +90,8 @@ public class Monitor {
         notifyObservers("all_nodes_stopped");
     }
 
-    public void connectClient(Map<Integer, Integer> ports) {
-        client = new Client(ports);
+    public void connectClient(Map<Integer, NodeInfo> nodeInfos) {
+        client = new Client(nodeInfos);
         notifyObservers("client_connected");
     }
 

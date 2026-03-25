@@ -12,11 +12,11 @@ import java.util.logging.Logger;
  */
 
 public class Client {
-    private final Map<Integer, Integer> clusterMembers;
+    private final Map<Integer, NodeInfo> clusterMembers;
     private Integer currentLeaderId;
     public Integer getCurrentLeaderId() { return currentLeaderId; }
     
-    public Client(Map<Integer, Integer> clusterMembers) {
+    public Client(Map<Integer, NodeInfo> clusterMembers) {
         this.clusterMembers = clusterMembers;
     }
 
@@ -29,7 +29,7 @@ public class Client {
         logger.info("Discovering leader...");
         
         // Query each member for the leader
-        for (Map.Entry<Integer, Integer> member : clusterMembers.entrySet()) {
+        for (Map.Entry<Integer, NodeInfo> member : clusterMembers.entrySet()) {
             try {
                 Integer leaderId = queryNodeForLeader(member.getValue());
                 if (leaderId != null) {
@@ -48,14 +48,14 @@ public class Client {
     }
     
     // Helper query to get the leader from a node
-    private Integer queryNodeForLeader(int port) throws Exception {
-        try (Socket socket = new Socket("localhost", port)) {
+    private Integer queryNodeForLeader(NodeInfo node) throws Exception {
+        try (Socket socket = new Socket(node.getHost(), node.getClientPort())) {
             socket.setSoTimeout(2000);
             
             ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
             ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
             
-            logger.info("    Querying node at port " + port + " for leader");
+            logger.info("    Querying node at " + node.getHost() + ":" + node.getClientPort() + " for leader");
             ClientRequest request = new ClientRequest(ClientRequest.RequestType.GET_LEADER, null);
             out.writeObject(request);
             out.flush();
@@ -77,10 +77,11 @@ public class Client {
         try {
 
             // Send request to leader's port
-            int port = clusterMembers.get(currentLeaderId);
-            logger.info("    Sending request to leader at port " + port);
+            NodeInfo leader = clusterMembers.get(currentLeaderId);
+            int port = leader.getClientPort();
+            logger.info("    Sending request to leader  " + leader.getHost() + ":" + port);
             
-            try (Socket socket = new Socket("localhost", port)) {
+            try (Socket socket = new Socket(leader.getHost(), port)) {
                 socket.setSoTimeout(5000);
                 
                 ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
@@ -146,7 +147,7 @@ public class Client {
             nodeCount = Integer.parseInt(args[0]);
         }
         RaftConfig.validateClusterSize(nodeCount);
-        Client client = new Client(RaftConfig.getClientPorts(nodeCount));
+        Client client = new Client(RaftConfig.getNodeInfos(nodeCount));
         
         // Interactive mode
         BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));

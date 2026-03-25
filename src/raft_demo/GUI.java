@@ -271,7 +271,7 @@ public class GUI extends JFrame implements Observer {
     
     //CLIENT
     private void onConnectClient() {
-        monitor.connectClient(RaftConfig.getClientPorts(nodeCount));
+        monitor.connectClient(RaftConfig.getNodeInfos(nodeCount));
         showLeaderBtn.setEnabled(true);
 
         // WE NEED TO USE A THREAD OR IT GOES UNRESPONSIVE

@@ -47,7 +47,7 @@ public class RaftNode {
     public Role role = Role.FOLLOWER;
 
     // Map of all cluster members
-    public Map<Integer, Integer> clusterMembers;
+    public Map<Integer, NodeInfo> clusterMembers;
 
     //---------------------------------
 
@@ -62,7 +62,7 @@ public class RaftNode {
 
     private Logger logger;
 
-    public RaftNode(int id, Map<Integer, Integer> clusterMembers) {
+    public RaftNode(int id, Map<Integer, NodeInfo> clusterMembers) {
         this.id = id;
         this.clusterMembers = clusterMembers;
         resetElectionTimeout();

@@ -28,7 +28,7 @@ public class RaftServer {
     
      // Initializes the server with its ID, port, and cluster members.
 
-    public RaftServer(int id, int port, int clientPort, Map<Integer, Integer> clusterMembers) throws Exception {
+    public RaftServer(int id, int port, int clientPort, Map<Integer, NodeInfo> clusterMembers) throws Exception {
         this.port = port;
         this.clientPort = clientPort;
         this.socket = new DatagramSocket(null);
@@ -135,8 +135,8 @@ public class RaftServer {
                 // Handle a response to a log replication request we sent
                 logger.info("Handling AppendEntriesResults from " + packet.getAddress() + ":" + packet.getPort());
                 int fromId = -1;
-                for (Map.Entry<Integer, Integer> entry : raftNode.clusterMembers.entrySet()) {
-                    if (entry.getValue() == packet.getPort()) {
+                for (Map.Entry<Integer, NodeInfo> entry : raftNode.clusterMembers.entrySet()) {
+                    if (entry.getValue().getUdpPort() == packet.getPort()) {
                         fromId = entry.getKey();
                         break;
                     }
@@ -164,10 +164,11 @@ public class RaftServer {
         );
         
 
-        for (Map.Entry<Integer, Integer> member : raftNode.clusterMembers.entrySet()) {
+        for (Map.Entry<Integer, NodeInfo> member : raftNode.clusterMembers.entrySet()) {
             if (member.getKey() != raftNode.id) {
-                logger.info("Requesting vote from node " + member.getKey() + " at port " + member.getValue());
-                sendRequest(args, "localhost", member.getValue());
+                NodeInfo peer = member.getValue();
+                logger.info("Requesting vote from node " + member.getKey() + " at port " + peer.getUdpPort());
+                sendRequest(args, peer.getHost(), peer.getUdpPort());
             }
         }
     }
@@ -201,9 +202,10 @@ public class RaftServer {
         raftNode.lastHeartbeat = System.currentTimeMillis();
         logger.info("Sending heartbeats to followers...");
         sleepHeartbeatDelay();
-        for (Map.Entry<Integer, Integer> member : raftNode.clusterMembers.entrySet()) {
+        for (Map.Entry<Integer, NodeInfo> member : raftNode.clusterMembers.entrySet()) {
             if (member.getKey() != raftNode.id) {
-                logger.info("Sending heartbeat to node " + member.getKey() + " at port " + member.getValue());
+                NodeInfo peer = member.getValue();
+                logger.info("Sending heartbeat to node " + member.getKey() + " at port " + peer.getUdpPort());
                 int nextIndex = raftNode.nextIndex.getOrDefault(member.getKey(), raftNode.log.size());
                 if (nextIndex > raftNode.log.size()) {
                     nextIndex = raftNode.log.size();
@@ -225,7 +227,7 @@ public class RaftServer {
                     prevLogTerm,
                     entries, raftNode.commitIndex
                 );
-                sendRequest(args, "localhost", member.getValue());
+                sendRequest(args, peer.getHost(), peer.getUdpPort());
             }
         }
     }
@@ -374,16 +376,16 @@ public class RaftServer {
             return;
         }
 
-        Map<Integer, Integer> members = RaftConfig.getClusterMembers(nodeCount);
+        Map<Integer, NodeInfo> members = RaftConfig.getNodeInfos(nodeCount);
 
         if (!RaftConfig.isValidNodeId(id, nodeCount)) { //same deal as above *2
             System.out.println("Invalid Node ID: " + id);
             return;
         }
 
-
-        int port = members.get(id);
-        int clientPort = RaftConfig.clientPort(id);
+        NodeInfo self = members.get(id);
+        int port = self.getUdpPort();
+        int clientPort = self.getClientPort();
         RaftServer server = new RaftServer(id, port, clientPort, members);
 
         // Add shutdown hook for graceful termination
