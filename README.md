@@ -1,35 +1,65 @@
-# COMP370-Project1-Group-3
-Mike Buss, Bhupinder Singh Gill, Armaan Kandola, Brayden Schneider, Eric Thai
-## Overview
+# COMP370 Project 2 — Group 3
 
-Implement a distributed system. We are using the Raft consensus algorithm. The project provides a class for a Raft node with the standard roles (Follower, Candidate, Leader), leader election, and log replication. Each node is its own java program that can handle network communication: UDP for Raft (RequestVote, AppendEntries) and TCP for client requests. Execution can be run with a GUI (start/stop cluster, send commands, view logs --- newer/nicer so recommened) or headless(we are trying to move away from this).
+**Mike Buss, Bhupinder Singh Gill, Armaan Kandola, Brayden Schneider, Eric Thai**
 
-### Overview
+# Overview
 
-The demo runs a cluster of three Raft nodes:
 
-1. Nodes 1,2 and 3 are RaftServers: Each has a unique ID, listening on a UDP port for Raft RPCs and a TCP port for clients. One node becomes leader via election. The leader sends heartbeats and tracks log entries.
+Implement a distributed system. We are using the Raft consensus algorithm. The project provides a class for a Raft node with the standard roles (Follower, Candidate, Leader), leader election, and log replication. Each node is its own java program that can handle network communication: UDP for Raft (RequestVote, AppendEntries) and TCP for client requests.
 
-2. Clients discovers the leader by querying each node’s port, then sends a request to the leader. If the response indicates as NOT_LEADER, the client does what the node responds with to find the leader.
 
-3. GUI: Does it all, no need for any commands.Start/stop the cluster, connect a client, send commands, and view node/client logs. “Simulate network delay” and log dropdown for Node 1, Node 2, Node 3, or Client. 
+## Screenshots
 
-4. **deprecated** --- Headless: Use `run_headless.sh` to compile, start three nodes in the background, and optionally run a client or inspect logs under `logs/`. You will need to run commands/ kill processes manuals 
+### Raft demo GUI
 
-## Install Guide
+![Raft demo GUI](img/gui.png)
+
+### Leader re-election (log view)
+
+![Leader re-election](img/re-election.png)
+
+---
+
+## Example log output
+
+During normal operation, nodes log heartbeats, AppendEntries handling, and replication progress. In the logs below we see a packet recieved from the client ```127.0.0.1:9102``` and the cluster starting doing the process of appending it.
+
+```
+INFO: Resetting election timeout due to valid leader 2
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftNode handleAppendEntries
+INFO: Resetting election timeout due to valid leader 2
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftServer lambda$start$0
+INFO: Received packet from /127.0.0.1:9102 sent to handlePacket
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftNode handleAppendEntries
+INFO: Received heartbeat from Leader 2 (Term: 1)
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftNode handleAppendEntries
+INFO: Received heartbeat from Leader 2 (Term: 1)
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftServer handlePacket
+INFO: Handling AppendEntriesResults from /127.0.0.1:9102
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftNode handleAppendEntries
+INFO: AppendEntries from Leader 2 processed successfully
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftNode handleAppendEntries
+INFO: AppendEntries from Leader 2 processed successfully
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftServer handleAppendEntriesResult
+INFO: AppendEntries successful from node 1, updating matchIndex
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftServer lambda$start$0
+INFO: Received packet from /127.0.0.1:9105 sent to handlePacket
+Mar 26, 2026 9:47:58 P.M. raft_demo.RaftServer handlePacket
+INFO: Handling AppendEntriesResults from /127.0.0.1:9105
+```
+
+Logs are written under `logs/` when running.
+
+---
+
+## Set Up
 
 ### Prerequisites
 
 - **Java 17** or higher (or a compatible JDK)
 - **Bash** or **Command Prompt** (or alternative)
 
-### Setup Instructions
-
-1. **Clone or download the repository**
-
-2. Ensure `javac` and `java` are installed and can be found.
-
-3. Follow either 1,2 or 3 below:
+### Run the GUI
 
 (1) (Linux/macOS):
    ```bash
@@ -37,7 +67,8 @@ The demo runs a cluster of three Raft nodes:
    ```
    If everything is working, the Raft Demo GUI window should open. Click Start Cluster, then Connect Client, and send a command to test.
 
- (2) Windows:
+
+(2) Windows:
    ```bat
    run_windows.bat
    ```
@@ -47,32 +78,41 @@ The demo runs a cluster of three Raft nodes:
    ```bash
    ./run_headless.sh
    ```
-   This compiles the project and starts three Raft nodes in the background. Use the printed commands to tail logs or stop the nodes.
-
-## Project Structure
+## Project structure
 
 ```
 COMP370-Project1-Group-3/
+├── img/
 ├── src/raft_demo/
-│   ├── RaftNode.java      # Core Raft logic: roles, election, 
-│   ├── RaftServer.java    # Network stuff
-│   ├── RaftRPC.java       # RequestVote / AppendEntries
-│   ├── Client.java        # Client
-│   ├── Logger.java        # Logging
-│   └── GUI.java           # Swing GUI and controls
+│   ├── RaftNode.java      # Raft roles, election, log
+│   ├── RaftServer.java    # UDP/TCP networking
+│   ├── RaftRPC.java       # RequestVote / AppendEntries 
+│   ├── RaftConfig.java    # Cluster size limits, ports 
+│   ├── NodeInfo.java      # Per-node host / UDP / TCP ports
+│   ├── Client.java        
+│   ├── Monitor.java       # singleton
+│   ├── Observer.java      # Observer
+│   └── GUI.java           # Swing UI
 ├── uml/                   # Diagrams
-├── run_gui.sh             # Launch GUI 
-├── run_headless.sh        # headless
-├── run_windows.bat        # Launch GUI 
-├── LICENSE
+├── logs/                  # Runtime logs 
+├── run_gui.sh
+├── run_headless.sh
+├── run_windows.bat
 └── README.md
 ```
 
-## Ports Used
+---
 
-| Node | Raft RPC (UDP) | Client (TCP) |
-|------|----------------|--------------|
-| 1    | 9102           | 8102         |
-| 2    | 9103           | 8103         |
-| 3    | 9104           | 8104         |
+## Ports
+
+Ports are defined in `RaftConfig` (base + node id):
+
+| Purpose        | Formula              | Example (node 1) |
+|----------------|----------------------|------------------|
+| Raft RPC (UDP) | `9101 + nodeId`      | 9102             |
+| Client (TCP)   | `8101 + nodeId`      | 8102             |
+
+Valid cluster can be changed (see `RaftConfig.MIN_CLUSTER_SIZE` and `MAX_CLUSTER_SIZE`).
+
+---
 
