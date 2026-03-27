@@ -14,7 +14,7 @@ Implement a distributed system. We are using the Raft consensus algorithm. The p
 
 ![Raft demo GUI](img/gui.png)
 
-### Leader re-election (log view)
+### Leader re-election (client view)
 
 ![Leader re-election](img/re-election.png)
 
